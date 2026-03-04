@@ -1,0 +1,38 @@
+{
+  "name": "5g-portal-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "prisma": "prisma"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.12.0",
+    "bcrypt": "^5.1.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-session": "^1.17.3",
+    "passport": "^0.7.0",
+    "passport-oauth2": "^1.7.0",
+    "pg": "^8.11.3",
+    "socket.io": "^4.7.5",
+    "winston": "^3.10.0"
+  },
+  "devDependencies": {
+    "@types/bcrypt": "^5.0.2",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/express-session": "^1.17.8",
+    "@types/node": "^20.11.30",
+    "@types/passport-oauth2": "^1.4.15",
+    "@types/socket.io": "^3.0.2",
+    "prisma": "^5.12.0",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.3.3"
+  }
+}
