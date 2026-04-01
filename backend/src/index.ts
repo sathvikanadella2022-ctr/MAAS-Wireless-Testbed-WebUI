@@ -5,7 +5,7 @@ import dotenv from 'dotenv';
 import http from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import passport from 'passport';
-import { globusStrategy, ensureAuthenticated } from './modules/auth';
+import { globusStrategy } from './modules/auth';
 import apiRouter from './routes/api';
 import authRouter from './routes/auth';
 import { auditLogger } from './modules/audit';
@@ -35,11 +35,15 @@ app.use('/auth', authRouter);
 io.on('connection', (socket) => {
   socket.emit('statusUpdate', [
     { id: 'pc1', type: 'PC', name: 'PC-1', status: 'online' },
-    { id: 'usrp1', type: 'USRP', name: 'USRP-1', status: 'busy' }
+    { id: 'pc2', type: 'PC', name: 'PC-2', status: 'online' },
+    { id: 'pc3', type: 'PC', name: 'PC-3', status: 'busy' },
+    { id: 'pc4', type: 'PC', name: 'PC-4', status: 'online' },
+    { id: 'usrp1', type: 'USRP', name: 'USRP-1', status: 'busy' },
+    { id: 'usrp2', type: 'USRP', name: 'USRP-2', status: 'offline' }
   ]);
 });
 
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3002;
 server.listen(PORT, () => {
   console.log(`Backend listening on http://localhost:${PORT}`);
 });

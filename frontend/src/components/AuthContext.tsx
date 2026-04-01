@@ -8,19 +8,45 @@ interface User {
 
 interface AuthContextType {
   user: User | null;
+  loading: boolean;
+  refreshUser: () => Promise<void>;
   setUser: (user: User | null) => void;
 }
 
-const AuthContext = createContext<AuthContextType>({ user: null, setUser: () => {} });
+const AuthContext = createContext<AuthContextType>({
+  user: null,
+  loading: true,
+  refreshUser: async () => {},
+  setUser: () => {}
+});
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const refreshUser = async () => {
+    setLoading(true);
+
+    try {
+      const response = await fetch('/api/me', { credentials: 'include' });
+      const data = response.ok ? await response.json() : null;
+      setUser(data?.user ?? null);
+    } catch {
+      setUser(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    fetch('/api/me').then(res => res.ok ? res.json() : null).then(data => {
-      if (data && data.user) setUser(data.user);
-    });
+    refreshUser();
   }, []);
-  return <AuthContext.Provider value={{ user, setUser }}>{children}</AuthContext.Provider>;
+
+  return (
+    <AuthContext.Provider value={{ user, loading, refreshUser, setUser }}>
+      {children}
+    </AuthContext.Provider>
+  );
 };
 
 export function useAuth() {

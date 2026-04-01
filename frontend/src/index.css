@@ -1,5 +1,15 @@
+* {
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
-  font-family: 'Roboto', Arial, sans-serif;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   background: #f7f9fb;
+  color: #10233b;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
 }
