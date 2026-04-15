@@ -4,7 +4,7 @@ import { DeploymentStatus, Role } from '@prisma/client';
 import { ensureAuthenticated, ensureRole } from '../modules/auth';
 import { auditLog } from '../modules/audit';
 import { prisma } from '../modules/prisma';
-import { canStartTerminal, destroySession, registerPendingSession } from '../modules/ssh';
+import { canStartTerminal, destroySession, listTerminalTargets, registerPendingSession } from '../modules/ssh';
 import { Server as SocketIOServer } from 'socket.io';
 
 type ResourceStatus = 'online' | 'offline' | 'busy';
@@ -382,6 +382,10 @@ export default (io: SocketIOServer) => {
     res.json({ deployments: await loadDeployments() });
   });
 
+  router.get('/terminal/targets', ensureAuthenticated, async (_req, res) => {
+    res.json({ targets: listTerminalTargets() });
+  });
+
   router.post('/deployments', ensureAuthenticated, async (req, res) => {
     const { resource, imageId, scheduledAt, notes } = req.body as {
       resource?: string;
@@ -466,8 +470,9 @@ export default (io: SocketIOServer) => {
 
     const isDevLocalShell = resource === 'local';
     const selectedResource = resources.find((entry) => entry.name === resource);
+    const configuredTerminalTarget = listTerminalTargets().find((entry) => entry.resource === resource);
 
-    if (!selectedResource && !isDevLocalShell) {
+    if (!selectedResource && !configuredTerminalTarget && !isDevLocalShell) {
       return res.status(404).json({ error: 'Selected resource was not found.' });
     }
 

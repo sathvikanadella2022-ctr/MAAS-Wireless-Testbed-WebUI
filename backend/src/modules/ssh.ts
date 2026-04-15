@@ -1,5 +1,8 @@
+import fs from 'node:fs';
 import os from 'node:os';
+import path from 'node:path';
 import * as pty from 'node-pty';
+import { fileURLToPath } from 'node:url';
 
 interface PendingSession {
   userId: string;
@@ -21,6 +24,17 @@ interface ResourceTarget {
   privateKeyPath?: string;
 }
 
+export interface TerminalTargetDefinition {
+  resource: string;
+  label?: string;
+  type?: 'local' | 'ssh';
+  host?: string;
+  username?: string;
+  port?: number;
+  privateKeyPath?: string;
+  description?: string;
+}
+
 // Sessions authorised by the REST endpoint, waiting for Socket.IO to claim them
 const pendingSessions = new Map<string, PendingSession>();
 
@@ -28,6 +42,8 @@ const pendingSessions = new Map<string, PendingSession>();
 const activeSessions = new Map<string, ActiveSession>();
 
 const terminalCwd = process.env.TERMINAL_CWD || os.homedir();
+const currentFilePath = fileURLToPath(import.meta.url);
+const terminalTargetsFile = path.resolve(path.dirname(currentFilePath), '../../../data/terminal-targets.json');
 
 const resolveShellCommand = () => {
   if (process.env.TERMINAL_SHELL) {
@@ -57,6 +73,50 @@ const parsePort = (value: string | undefined): number | undefined => {
 
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+const normalizeTarget = (target: TerminalTargetDefinition): TerminalTargetDefinition => ({
+  resource: target.resource,
+  label: target.label || target.resource,
+  type: target.type ?? (target.host ? 'ssh' : 'local'),
+  host: target.host,
+  username: target.username,
+  port: target.port,
+  privateKeyPath: target.privateKeyPath,
+  description: target.description
+});
+
+const loadFileTargets = (): Record<string, ResourceTarget & { label?: string; description?: string }> => {
+  if (!fs.existsSync(terminalTargetsFile)) {
+    return {};
+  }
+
+  try {
+    const raw = fs.readFileSync(terminalTargetsFile, 'utf8');
+    const parsed = JSON.parse(raw) as TerminalTargetDefinition[];
+
+    return Object.fromEntries(
+      parsed
+        .filter((target) => typeof target?.resource === 'string' && target.resource.trim().length > 0)
+        .map((target) => {
+          const normalized = normalizeTarget(target);
+          return [
+            normalized.resource,
+            {
+              type: normalized.type ?? 'local',
+              host: normalized.host,
+              username: normalized.username,
+              port: normalized.port,
+              privateKeyPath: normalized.privateKeyPath,
+              label: normalized.label,
+              description: normalized.description
+            }
+          ];
+        })
+    );
+  } catch {
+    return {};
+  }
 };
 
 const loadJsonTargets = (): Record<string, ResourceTarget> => {
@@ -89,6 +149,11 @@ const loadJsonTargets = (): Record<string, ResourceTarget> => {
 export function resolveTerminalTarget(resource: string): ResourceTarget {
   if (resource === 'local') {
     return { type: 'local' };
+  }
+
+  const fileTarget = loadFileTargets()[resource];
+  if (fileTarget) {
+    return fileTarget;
   }
 
   const jsonTarget = loadJsonTargets()[resource];
@@ -134,6 +199,47 @@ export function canStartTerminal(resource: string): { ok: boolean; error?: strin
   }
 
   return { ok: true };
+}
+
+export function listTerminalTargets(): Array<TerminalTargetDefinition & { configured: boolean }> {
+  const fileTargets = Object.entries(loadFileTargets()).map(([resource, target]) => ({
+    resource,
+    label: target.label || resource,
+    type: target.type,
+    host: target.host,
+    username: target.username,
+    port: target.port,
+    privateKeyPath: target.privateKeyPath,
+    description: target.description,
+    configured: target.type === 'local' || Boolean(target.host)
+  }));
+
+  if (fileTargets.length > 0) {
+    return fileTargets;
+  }
+
+  const jsonTargets = Object.entries(loadJsonTargets()).map(([resource, target]) => ({
+    resource,
+    label: resource,
+    type: target.type,
+    host: target.host,
+    username: target.username,
+    port: target.port,
+    privateKeyPath: target.privateKeyPath,
+    configured: target.type === 'local' || Boolean(target.host)
+  }));
+
+  if (jsonTargets.length > 0) {
+    return jsonTargets;
+  }
+
+  return [{
+    resource: 'local',
+    label: 'Local shell (dev / demo)',
+    type: 'local',
+    description: 'Runs a shell on the backend host.',
+    configured: true
+  }];
 }
 
 const buildSshLaunch = (resource: string, userId: string): { command: string; args: string[]; cwd: string; env: Record<string, string> } => {

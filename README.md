@@ -50,6 +50,113 @@ cd backend && npm run dev
 - Frontend: http://localhost:5173
 - Backend API: http://localhost:3001
 
+## Ubuntu Setup
+
+Use these steps when moving the project to a new Ubuntu machine.
+
+### 1. Install system packages
+```bash
+sudo apt update
+sudo apt install -y git curl build-essential openssh-client postgresql postgresql-contrib
+```
+
+### 2. Install Node.js 20
+```bash
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+node -v
+npm -v
+```
+
+### 3. Clone the repository
+```bash
+git clone <your-repo-url>
+cd 5G_portal
+```
+
+### 4. Install frontend and backend dependencies
+```bash
+cd backend && npm install
+cd ../frontend && npm install
+```
+
+Do not copy `node_modules` from Windows to Ubuntu. Install dependencies again on Ubuntu so native packages like `node-pty` are built for Linux.
+
+### 5. Configure backend environment variables
+```bash
+cd ../backend
+cp .env.example .env
+```
+
+Edit `backend/.env` and set at least:
+
+```env
+DATABASE_URL=postgresql://USER:PASSWORD@localhost:5432/5g_portal
+FRONTEND_URL=http://<ubuntu-machine-ip>:5173
+GLOBUS_REDIRECT_URI=http://<ubuntu-machine-ip>:3002/auth/callback
+SESSION_SECRET=some-long-random-secret
+PORT=3002
+NODE_ENV=development
+```
+
+If you want the terminal to connect to remote lab machines over SSH, add entries like:
+
+```env
+TERMINAL_HOST_PC_1=192.168.1.25
+TERMINAL_USER_PC_1=ubuntu
+TERMINAL_PORT_PC_1=22
+TERMINAL_KEY_PC_1=/home/youruser/.ssh/pc1_key
+```
+
+### 6. Set up PostgreSQL
+```bash
+sudo -u postgres psql
+```
+
+Inside `psql`:
+
+```sql
+CREATE DATABASE "5g_portal";
+CREATE USER portal_user WITH PASSWORD 'your_password';
+GRANT ALL PRIVILEGES ON DATABASE "5g_portal" TO portal_user;
+\q
+```
+
+Update `DATABASE_URL` in `backend/.env` to match the database credentials you created.
+
+### 7. Run Prisma
+```bash
+cd backend
+npx prisma generate
+npx prisma migrate dev --name init
+```
+
+### 8. Start the backend
+```bash
+npm run dev
+```
+
+### 9. Start the frontend
+In a second terminal:
+
+```bash
+cd frontend
+npm run dev -- --host 0.0.0.0
+```
+
+### 10. Open the app
+Visit:
+
+```text
+http://<ubuntu-machine-ip>:5173
+```
+
+### Ubuntu Notes
+- The terminal feature uses `bash` on Linux and can SSH to remote hosts if `TERMINAL_HOST_*` or `TERMINAL_RESOURCE_HOSTS` is configured in `backend/.env`.
+- Make sure `ssh` is installed on the Ubuntu machine if you plan to use remote terminal sessions.
+- If you move SSH keys from Windows, update their paths to Linux-style paths such as `/home/youruser/.ssh/...`.
+- If the checked-in `backend/.env` contains real secrets, rotate them before moving to a new machine.
+
 ## Folder Structure
 - `frontend/` — React app (Vite)
 - `backend/` — Express API server (TypeScript, Prisma)

@@ -23,9 +23,19 @@ interface Reservation {
   userId: string;
 }
 
+interface TerminalTarget {
+  resource: string;
+  label?: string;
+  type?: 'local' | 'ssh';
+  host?: string;
+  description?: string;
+  configured: boolean;
+}
+
 const Terminal: React.FC = () => {
   const { user, loading } = useAuth();
   const [reservations, setReservations] = useState<Reservation[]>([]);
+  const [targets, setTargets] = useState<TerminalTarget[]>([]);
   const [resource, setResource] = useState('');
   const [error, setError] = useState('');
   const [sessionId, setSessionId] = useState('');
@@ -44,27 +54,45 @@ const Terminal: React.FC = () => {
       return;
     }
 
-    fetch('/api/reservations', { credentials: 'include' })
-      .then(async (response) => {
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.error || 'Unable to load reservations.');
+    Promise.all([
+      fetch('/api/reservations', { credentials: 'include' }),
+      fetch('/api/terminal/targets', { credentials: 'include' })
+    ])
+      .then(async ([reservationResponse, targetResponse]) => {
+        const reservationData = await reservationResponse.json();
+        const targetData = await targetResponse.json();
+
+        if (!reservationResponse.ok) {
+          throw new Error(reservationData.error || 'Unable to load reservations.');
+        }
+
+        if (!targetResponse.ok) {
+          throw new Error(targetData.error || 'Unable to load terminal targets.');
         }
 
         setError('');
-        setReservations(data.reservations ?? []);
+        setReservations(reservationData.reservations ?? []);
+        setTargets(targetData.targets ?? []);
       })
-      .catch((err) => setError(err instanceof Error ? err.message : 'Unable to load reservations.'));
+      .catch((err) => setError(err instanceof Error ? err.message : 'Unable to load terminal settings.'));
   }, [loading, user]);
 
-  const activeReservations = useMemo(() => {
+  const activeReservationNames = useMemo(() => {
     const now = Date.now();
-    return reservations.filter((r) => {
+    return new Set(reservations.filter((r) => {
       const start = new Date(r.startTime).getTime();
       const end = new Date(r.endTime).getTime();
       return start <= now && end >= now && (r.userId === user?.id || user?.role === 'ADMIN');
-    });
+    }).map((reservation) => reservation.resource));
   }, [reservations, user]);
+
+  const selectableTargets = useMemo(() => targets.filter((target) => target.configured), [targets]);
+
+  useEffect(() => {
+    if (!resource && selectableTargets.length > 0) {
+      setResource(selectableTargets[0].resource);
+    }
+  }, [resource, selectableTargets]);
 
   // Mount xterm.js once a sessionId is available
   useEffect(() => {
@@ -180,7 +208,7 @@ const Terminal: React.FC = () => {
             Remote Terminal
           </Typography>
           <Typography sx={{ maxWidth: 760, color: 'rgba(248,250,252,0.84)' }}>
-            Select an active reservation below and launch a live shell session.
+            Select a configured machine below and launch a live shell session.
           </Typography>
         </Stack>
       </Paper>
@@ -201,24 +229,26 @@ const Terminal: React.FC = () => {
             </Typography>
             <TextField
               select
-              label="Reserved Resource"
+              label="Target Machine"
               value={resource}
               onChange={(e) => setResource(e.target.value)}
               fullWidth
-              helperText="Only active reservations are eligible for terminal access."
+              helperText="Machines come from backend/data/terminal-targets.json. Non-admin users still need an active reservation for remote resources."
             >
-              {activeReservations.map((r) => (
-                <MenuItem key={r.id} value={r.resource}>
-                  {r.resource}
+              {selectableTargets.map((target) => (
+                <MenuItem key={target.resource} value={target.resource}>
+                  {target.label || target.resource}
+                  {target.type === 'ssh' && target.host ? ` (${target.host})` : ''}
+                  {!activeReservationNames.has(target.resource) && target.resource !== 'local' ? ' - reservation required' : ''}
                 </MenuItem>
               ))}
-              {activeReservations.length === 0 && (
-                <MenuItem value="local" key="local">
-                  Local shell (dev / demo)
+              {selectableTargets.length === 0 && (
+                <MenuItem value="" disabled>
+                  No terminal targets configured
                 </MenuItem>
               )}
             </TextField>
-            <Button variant="contained" onClick={handleStart} disabled={!resource || loading || !user}>
+            <Button variant="contained" onClick={handleStart} disabled={!resource || loading || !user || selectableTargets.length === 0}>
               Start SSH Session
             </Button>
           </Stack>
