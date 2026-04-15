@@ -54,6 +54,9 @@ cd backend && npm run dev
 - `frontend/` — React app (Vite)
 - `backend/` — Express API server (TypeScript, Prisma)
 
+## Documentation
+- Full step-by-step setup and operations guide: `docs/ARA_SETUP_GUIDE.md`
+
 ## Notes
 - Globus OAuth2/OIDC integration is stubbed for local dev; see backend `.env.example` for required secrets.
 - All features are MVP-level and use mock data where integration is not possible.

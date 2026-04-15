@@ -47,9 +47,14 @@ const Home: React.FC = () => {
                 Plan Reservations
               </Button>
               {!user && (
-                <Button variant="text" sx={{ color: '#fff' }} href="/auth/dev-login">
-                  Continue as Demo User
-                </Button>
+                <>
+                  <Button variant="text" sx={{ color: '#fff' }} href="/auth/login">
+                    Sign in with Globus
+                  </Button>
+                  <Button variant="text" sx={{ color: '#fff' }} href="/auth/dev-login">
+                    Continue as Demo User
+                  </Button>
+                </>
               )}
             </Stack>
           </Stack>

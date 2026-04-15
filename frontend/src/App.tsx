@@ -61,9 +61,14 @@ const AppShell: React.FC = () => {
               </Button>
             </Stack>
           ) : (
-            <Button color="inherit" href="/auth/dev-login">
-              Demo Login
-            </Button>
+            <Stack direction="row" spacing={1}>
+              <Button color="inherit" href="/auth/login">
+                Globus Login
+              </Button>
+              <Button color="inherit" href="/auth/dev-login">
+                Demo Login
+              </Button>
+            </Stack>
           )}
         </Toolbar>
       </AppBar>

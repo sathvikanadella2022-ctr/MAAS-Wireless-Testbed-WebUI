@@ -1,16 +1,19 @@
 import { Router } from 'express';
+import { randomBytes } from 'node:crypto';
+import { DeploymentStatus, Role } from '@prisma/client';
 import { ensureAuthenticated, ensureRole } from '../modules/auth';
 import { auditLog } from '../modules/audit';
+import { prisma } from '../modules/prisma';
+import { canStartTerminal, destroySession, registerPendingSession } from '../modules/ssh';
 import { Server as SocketIOServer } from 'socket.io';
 
-type UserRole = 'RESEARCHER' | 'ADMIN';
 type ResourceStatus = 'online' | 'offline' | 'busy';
-type DeploymentStatus = 'queued' | 'deploying' | 'ready' | 'failed';
+type DeploymentStatusLabel = 'queued' | 'deploying' | 'ready' | 'failed';
 
 interface PortalUser {
   id: string;
   email: string;
-  role: UserRole;
+  role: Role;
 }
 
 interface ResourceRecord {
@@ -23,17 +26,6 @@ interface ResourceRecord {
   notes: string;
 }
 
-interface ReservationRecord {
-  id: string;
-  userId: string;
-  userEmail: string;
-  resource: string;
-  startTime: string;
-  endTime: string;
-  purpose: string;
-  project: string;
-}
-
 interface ImageRecord {
   id: string;
   name: string;
@@ -42,20 +34,6 @@ interface ImageRecord {
   stack: string;
   description: string;
 }
-
-interface DeploymentRecord {
-  id: string;
-  resource: string;
-  imageId: string;
-  imageName: string;
-  requestedBy: string;
-  scheduledAt: string;
-  notes: string;
-  status: DeploymentStatus;
-  createdAt: string;
-}
-
-const createIso = (hoursFromNow: number) => new Date(Date.now() + hoursFromNow * 60 * 60 * 1000).toISOString();
 
 const resources: ResourceRecord[] = [
   {
@@ -114,39 +92,6 @@ const resources: ResourceRecord[] = [
   }
 ];
 
-let reservations: ReservationRecord[] = [
-  {
-    id: 'res-1',
-    userId: 'stub-user',
-    userEmail: 'user@globus.org',
-    resource: 'PC-3',
-    startTime: createIso(-1),
-    endTime: createIso(3),
-    purpose: 'Run UE attach and throughput validation',
-    project: 'OpenAirInterface bring-up'
-  },
-  {
-    id: 'res-2',
-    userId: 'stub-user',
-    userEmail: 'user@globus.org',
-    resource: 'PC-1',
-    startTime: createIso(6),
-    endTime: createIso(10),
-    purpose: 'Prepare gNB benchmark image',
-    project: 'Image readiness'
-  },
-  {
-    id: 'res-3',
-    userId: 'admin-user',
-    userEmail: 'admin@globus.org',
-    resource: 'PC-4',
-    startTime: createIso(12),
-    endTime: createIso(16),
-    purpose: 'Core network failover test',
-    project: 'OAI core validation'
-  }
-];
-
 const images: ImageRecord[] = [
   {
     id: 'img-oai-gnb',
@@ -174,45 +119,99 @@ const images: ImageRecord[] = [
   }
 ];
 
-let deployments: DeploymentRecord[] = [
-  {
-    id: 'dep-1',
-    resource: 'PC-1',
-    imageId: 'img-oai-gnb',
-    imageName: 'OAI gNB Base',
-    requestedBy: 'admin@globus.org',
-    scheduledAt: createIso(2),
-    notes: 'Refresh before Thursday demo',
-    status: 'queued',
-    createdAt: createIso(-2)
-  },
-  {
-    id: 'dep-2',
-    resource: 'PC-2',
-    imageId: 'img-oai-core',
-    imageName: 'OAI Core Lab',
-    requestedBy: 'user@globus.org',
-    scheduledAt: createIso(-3),
-    notes: 'Metrics stack enabled',
-    status: 'ready',
-    createdAt: createIso(-5)
-  }
-];
-
 const getUser = (req: any) => req.user as PortalUser | undefined;
 
-const sortReservations = (records: ReservationRecord[]) =>
-  [...records].sort(
-    (left, right) => new Date(left.startTime).getTime() - new Date(right.startTime).getTime()
-  );
+const deploymentStatusLabelMap: Record<DeploymentStatus, DeploymentStatusLabel> = {
+  QUEUED: 'queued',
+  DEPLOYING: 'deploying',
+  READY: 'ready',
+  FAILED: 'failed'
+};
 
-const sortDeployments = (records: DeploymentRecord[]) =>
-  [...records].sort(
-    (left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
-  );
+const upsertSessionUser = async (user: PortalUser | undefined) => {
+  if (!user) {
+    return null;
+  }
 
-const updateResourceStatus = (io: SocketIOServer) => {
+  try {
+    return await prisma.user.upsert({
+      where: { email: user.email },
+      update: { role: user.role },
+      create: {
+        id: user.id,
+        email: user.email,
+        role: user.role
+      }
+    });
+  } catch {
+    // DB not available — return a plain object so routes keep working in dev
+    return { id: user.id, email: user.email, role: user.role };
+  }
+};
+
+const serializeReservation = (reservation: {
+  id: string;
+  userId: string;
+  resource: string;
+  startTime: Date;
+  endTime: Date;
+  purpose: string;
+  project: string;
+  user: { email: string };
+}) => ({
+  id: reservation.id,
+  userId: reservation.userId,
+  userEmail: reservation.user.email,
+  resource: reservation.resource,
+  startTime: reservation.startTime.toISOString(),
+  endTime: reservation.endTime.toISOString(),
+  purpose: reservation.purpose,
+  project: reservation.project
+});
+
+const loadReservations = async () => {
+  try {
+    const reservations = await prisma.reservation.findMany({
+      include: { user: { select: { email: true } } },
+      orderBy: { startTime: 'asc' }
+    });
+    return reservations.map(serializeReservation);
+  } catch {
+    return [];
+  }
+};
+
+const loadDeployments = async () => {
+  try {
+    const deployments = await prisma.deployment.findMany({
+      orderBy: { createdAt: 'desc' }
+    });
+    return deployments.map((deployment) => ({
+      id: deployment.id,
+      resource: deployment.resource,
+      imageId: deployment.imageId,
+      imageName: deployment.imageName,
+      requestedBy: deployment.requestedBy,
+      scheduledAt: deployment.scheduledAt.toISOString(),
+      notes: deployment.notes ?? '',
+      status: deploymentStatusLabelMap[deployment.status],
+      createdAt: deployment.createdAt.toISOString()
+    }));
+  } catch {
+    return [];
+  }
+};
+
+const updateResourceStatus = async (io: SocketIOServer) => {
   const now = Date.now();
+  let reservations: { resource: string; startTime: Date; endTime: Date }[] = [];
+  try {
+    reservations = await prisma.reservation.findMany({
+      select: { resource: true, startTime: true, endTime: true }
+    });
+  } catch {
+    // DB not available — skip status update from reservations
+  }
 
   resources.forEach((resource) => {
     if (resource.type === 'USRP' && resource.status === 'offline') {
@@ -224,8 +223,8 @@ const updateResourceStatus = (io: SocketIOServer) => {
         return false;
       }
 
-      const start = new Date(reservation.startTime).getTime();
-      const end = new Date(reservation.endTime).getTime();
+      const start = reservation.startTime.getTime();
+      const end = reservation.endTime.getTime();
       return start <= now && end >= now;
     });
 
@@ -239,10 +238,12 @@ export default (io: SocketIOServer) => {
   const router = Router();
   const devAuthEnabled = process.env.NODE_ENV !== 'production' && process.env.DEV_AUTH !== 'false';
 
-  updateResourceStatus(io);
+  void updateResourceStatus(io).catch((error) => {
+    console.error('Failed to initialize resource status:', error);
+  });
 
-  router.get('/status', (_req, res) => {
-    updateResourceStatus(io);
+  router.get('/status', async (_req, res) => {
+    await updateResourceStatus(io);
     res.json({
       resources: resources.map((resource) => ({
         id: resource.id,
@@ -257,7 +258,7 @@ export default (io: SocketIOServer) => {
   });
 
   router.get('/reservations', ensureAuthenticated, async (_req, res) => {
-    res.json({ reservations: sortReservations(reservations) });
+    res.json({ reservations: await loadReservations() });
   });
 
   router.post('/reservations', ensureAuthenticated, async (req, res) => {
@@ -270,6 +271,11 @@ export default (io: SocketIOServer) => {
     };
 
     const user = getUser(req);
+    const dbUser = await upsertSessionUser(user);
+
+    if (!dbUser) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
 
     if (!resource || !startTime || !endTime || !purpose || !project) {
       return res.status(400).json({ error: 'Fill in resource, time window, project, and purpose.' });
@@ -295,58 +301,77 @@ export default (io: SocketIOServer) => {
       return res.status(400).json({ error: 'End time must be after start time.' });
     }
 
-    const conflictingReservation = reservations.find((entry) => {
-      if (entry.resource !== resource) {
-        return false;
-      }
-
-      const existingStart = new Date(entry.startTime).getTime();
-      const existingEnd = new Date(entry.endTime).getTime();
-      return start.getTime() < existingEnd && end.getTime() > existingStart;
-    });
+    let conflictingReservation = null;
+    try {
+      conflictingReservation = await prisma.reservation.findFirst({
+        where: {
+          resource,
+          startTime: { lt: end },
+          endTime: { gt: start }
+        },
+        orderBy: { startTime: 'asc' }
+      });
+    } catch {
+      // DB unavailable — skip conflict check in dev
+    }
 
     if (conflictingReservation) {
       return res.status(409).json({
-        error: `Somebody already booked ${resource} from ${new Date(conflictingReservation.startTime).toLocaleString()} to ${new Date(conflictingReservation.endTime).toLocaleString()}. Please choose a different time.`
+        error: `Somebody already booked ${resource} from ${conflictingReservation.startTime.toLocaleString()} to ${conflictingReservation.endTime.toLocaleString()}. Please choose a different time.`
       });
     }
 
-    const reservation: ReservationRecord = {
-      id: `res-${Date.now()}`,
-      userId: user?.id ?? 'unknown-user',
-      userEmail: user?.email ?? 'unknown@globus.org',
-      resource,
-      startTime: start.toISOString(),
-      endTime: end.toISOString(),
-      purpose,
-      project
-    };
+    try {
+      await prisma.reservation.create({
+        data: {
+          userId: dbUser.id,
+          resource,
+          startTime: start,
+          endTime: end,
+          purpose: purpose.trim(),
+          project: project.trim()
+        }
+      });
+    } catch {
+      return res.status(503).json({ error: 'Database unavailable. Cannot save reservation.' });
+    }
 
-    reservations = sortReservations([...reservations, reservation]);
-    updateResourceStatus(io);
-    await auditLog(user?.id, 'reservation_create', `Resource: ${resource}; Project: ${project}`);
-    res.status(201).json({ reservations });
+    await updateResourceStatus(io);
+    await auditLog(dbUser.id, 'reservation_create', `Resource: ${resource}; Project: ${project.trim()}`);
+    res.status(201).json({ reservations: await loadReservations() });
   });
 
   router.delete('/reservations/:id', ensureAuthenticated, async (req, res) => {
     const user = getUser(req);
-    const reservation = reservations.find((entry) => entry.id === req.params.id);
+    let reservation: { id: string; userId: string; resource: string; user: { email: string } } | null = null;
+    try {
+      reservation = await prisma.reservation.findUnique({
+        where: { id: req.params.id },
+        include: { user: { select: { email: true } } }
+      });
+    } catch {
+      return res.status(503).json({ error: 'Database unavailable.' });
+    }
 
     if (!reservation) {
       return res.status(404).json({ error: 'Reservation not found.' });
     }
 
     const isOwner = reservation.userId === user?.id;
-    const isAdmin = user?.role === 'ADMIN';
+    const isAdmin = user?.role === Role.ADMIN;
 
     if (!isOwner && !isAdmin) {
       return res.status(403).json({ error: 'You can only cancel your own reservations.' });
     }
 
-    reservations = reservations.filter((entry) => entry.id !== reservation.id);
-    updateResourceStatus(io);
+    try {
+      await prisma.reservation.delete({ where: { id: reservation.id } });
+    } catch {
+      return res.status(503).json({ error: 'Database unavailable.' });
+    }
+    await updateResourceStatus(io);
     await auditLog(user?.id, 'reservation_cancel', `Resource: ${reservation.resource}`);
-    res.json({ reservations: sortReservations(reservations) });
+    res.json({ reservations: await loadReservations() });
   });
 
   router.get('/images', ensureAuthenticated, async (_req, res) => {
@@ -354,7 +379,7 @@ export default (io: SocketIOServer) => {
   });
 
   router.get('/deployments', ensureAuthenticated, async (_req, res) => {
-    res.json({ deployments: sortDeployments(deployments) });
+    res.json({ deployments: await loadDeployments() });
   });
 
   router.post('/deployments', ensureAuthenticated, async (req, res) => {
@@ -366,6 +391,11 @@ export default (io: SocketIOServer) => {
     };
 
     const user = getUser(req);
+    const dbUser = await upsertSessionUser(user);
+
+    if (!dbUser) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
 
     if (!resource || !imageId || !scheduledAt) {
       return res.status(400).json({ error: 'Choose a resource, image, and deployment time.' });
@@ -386,17 +416,18 @@ export default (io: SocketIOServer) => {
       return res.status(400).json({ error: 'Choose a valid deployment time.' });
     }
 
-    const overlappingReservation = reservations.find((entry) => {
-      if (entry.resource !== resource) {
-        return false;
-      }
-
-      const start = new Date(entry.startTime).getTime();
-      const end = new Date(entry.endTime).getTime();
-      const deploymentStart = deploymentTime.getTime();
-      const deploymentEnd = deploymentStart + 90 * 60 * 1000;
-      return deploymentStart < end && deploymentEnd > start;
-    });
+    let overlappingReservation = null;
+    try {
+      overlappingReservation = await prisma.reservation.findFirst({
+        where: {
+          resource,
+          startTime: { lt: new Date(deploymentTime.getTime() + 90 * 60 * 1000) },
+          endTime: { gt: deploymentTime }
+        }
+      });
+    } catch {
+      // DB unavailable — skip overlap check in dev
+    }
 
     if (overlappingReservation) {
       return res.status(409).json({
@@ -404,21 +435,25 @@ export default (io: SocketIOServer) => {
       });
     }
 
-    const deployment: DeploymentRecord = {
-      id: `dep-${Date.now()}`,
-      resource,
-      imageId,
-      imageName: selectedImage.name,
-      requestedBy: user?.email ?? 'unknown@globus.org',
-      scheduledAt: deploymentTime.toISOString(),
-      notes: notes?.trim() ?? '',
-      status: deploymentTime.getTime() <= Date.now() ? 'deploying' : 'queued',
-      createdAt: new Date().toISOString()
-    };
+    try {
+      await prisma.deployment.create({
+        data: {
+          userId: dbUser.id,
+          resource,
+          imageId,
+          imageName: selectedImage.name,
+          requestedBy: dbUser.email,
+          scheduledAt: deploymentTime,
+          notes: notes?.trim() || null,
+          status: deploymentTime.getTime() <= Date.now() ? DeploymentStatus.DEPLOYING : DeploymentStatus.QUEUED
+        }
+      });
+    } catch {
+      return res.status(503).json({ error: 'Database unavailable. Cannot save deployment.' });
+    }
 
-    deployments = sortDeployments([deployment, ...deployments]);
-    await auditLog(user?.id, 'deployment_create', `Resource: ${resource}; Image: ${selectedImage.name}`);
-    res.status(201).json({ deployments });
+    await auditLog(dbUser.id, 'deployment_create', `Resource: ${resource}; Image: ${selectedImage.name}`);
+    res.status(201).json({ deployments: await loadDeployments() });
   });
 
   router.post('/terminal/start', ensureAuthenticated, async (req, res) => {
@@ -429,31 +464,63 @@ export default (io: SocketIOServer) => {
       return res.status(400).json({ error: 'Pick a resource before starting a terminal session.' });
     }
 
-    const hasReservation = reservations.some((reservation) => {
-      const now = Date.now();
-      return (
-        reservation.resource === resource &&
-        reservation.userId === user?.id &&
-        new Date(reservation.startTime).getTime() <= now &&
-        new Date(reservation.endTime).getTime() >= now
-      );
-    });
+    const isDevLocalShell = resource === 'local';
+    const selectedResource = resources.find((entry) => entry.name === resource);
 
-    if (!hasReservation && user?.role !== 'ADMIN') {
+    if (!selectedResource && !isDevLocalShell) {
+      return res.status(404).json({ error: 'Selected resource was not found.' });
+    }
+
+    const terminalCheck = canStartTerminal(resource);
+    if (!terminalCheck.ok) {
+      return res.status(400).json({ error: terminalCheck.error });
+    }
+
+    // Check for an active reservation; skip the DB check gracefully in dev mode if the DB is unavailable
+    let hasReservation = false;
+    try {
+      const now = new Date();
+      const row = await prisma.reservation.findFirst({
+        where: {
+          resource,
+          userId: user?.id,
+          startTime: { lte: now },
+          endTime: { gte: now }
+        }
+      });
+      hasReservation = row !== null;
+    } catch {
+      // DB not reachable — allow in dev mode, block in production
+      if (process.env.NODE_ENV === 'production') {
+        return res.status(503).json({ error: 'Database unavailable.' });
+      }
+      hasReservation = true; // dev bypass
+    }
+
+    if (!isDevLocalShell && !hasReservation && user?.role !== Role.ADMIN) {
       return res.status(403).json({ error: 'You need an active reservation for this resource.' });
     }
 
+    const sessionId = `terminal-${randomBytes(16).toString('hex')}`;
+    registerPendingSession(sessionId, user!.id, resource);
+
     await auditLog(user?.id, 'terminal_start', `Started terminal session for ${resource}`);
-    res.json({ sessionId: `terminal-${Date.now()}`, message: `Terminal ready for ${resource}.` });
+    res.json({ sessionId, message: `Terminal ready for ${resource}.` });
   });
 
   router.post('/terminal/end', ensureAuthenticated, async (req, res) => {
+    const { sessionId } = req.body as { sessionId?: string };
     const user = getUser(req);
+
+    if (sessionId) {
+      destroySession(sessionId);
+    }
+
     await auditLog(user?.id, 'terminal_end', 'Ended terminal session');
     res.json({ message: 'SSH session ended.' });
   });
 
-  router.get('/me', (req, res) => {
+  router.get('/me', async (req, res) => {
     const isAuth = req.isAuthenticated && req.isAuthenticated();
     const user = getUser(req);
 
@@ -461,16 +528,20 @@ export default (io: SocketIOServer) => {
       return res.status(401).json({ user: null });
     }
 
-    return res.json({ user });
+    const dbUser = await upsertSessionUser(user);
+    return res.json({ user: dbUser ?? user });
   });
 
-  router.get('/admin/users', ensureAuthenticated, ensureRole('ADMIN'), async (_req, res) => {
-    res.json({
-      users: [
-        { id: 'admin-user', email: 'admin@globus.org', role: 'ADMIN' },
-        { id: 'stub-user', email: 'user@globus.org', role: 'RESEARCHER' }
-      ]
-    });
+  router.get('/admin/users', ensureAuthenticated, ensureRole(Role.ADMIN), async (_req, res) => {
+    try {
+      const users = await prisma.user.findMany({
+        orderBy: { createdAt: 'asc' },
+        select: { id: true, email: true, role: true }
+      });
+      res.json({ users });
+    } catch {
+      res.json({ users: [] });
+    }
   });
 
   return router;

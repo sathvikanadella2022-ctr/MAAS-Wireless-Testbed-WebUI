@@ -5,42 +5,104 @@ import { VerifyCallback } from 'passport-oauth2';
 import dotenv from 'dotenv';
 dotenv.config();
 
-type AuthUser = {
+export type AuthUser = {
   id: string;
   email: string;
   role: 'RESEARCHER' | 'ADMIN';
 };
 
-// Globus OAuth2 strategy (stub for MVP)
-export const globusStrategy = new OAuth2Strategy({
-  authorizationURL: process.env.GLOBUS_AUTH_URL || 'https://auth.globus.org/v2/oauth2/authorize',
-  tokenURL: 'https://auth.globus.org/v2/oauth2/token',
+type GlobusProfile = {
+  sub: string;
+  email?: string;
+  preferred_username?: string;
+  name?: string;
+  identity_set?: Array<{ sub?: string; email?: string; username?: string; name?: string }>;
+};
+
+const authBaseUrl = process.env.GLOBUS_AUTH_URL || 'https://auth.globus.org/v2/oauth2';
+const userInfoUrl = process.env.GLOBUS_USERINFO_URL || `${authBaseUrl}/userinfo`;
+const callbackUrl = process.env.GLOBUS_REDIRECT_URI || 'http://localhost:3002/auth/callback';
+
+const adminEmails = new Set(
+  (process.env.GLOBUS_ADMIN_EMAILS || '')
+    .split(',')
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean)
+);
+
+class GlobusOAuth2Strategy extends OAuth2Strategy {
+  userProfile(accessToken: string, done: (error?: Error | null, profile?: GlobusProfile) => void): void {
+    this._oauth2.useAuthorizationHeaderforGET(true);
+    this._oauth2.get(userInfoUrl, accessToken, (error, body) => {
+      if (error) {
+        const oauthError = error instanceof Error
+          ? error
+          : new Error(`Globus userinfo request failed with status ${error.statusCode ?? 'unknown'}.`);
+        return done(oauthError);
+      }
+
+      try {
+        const raw = typeof body === 'string' ? body : body?.toString('utf8');
+        if (!raw) {
+          throw new Error('Globus userinfo response was empty.');
+        }
+        const profile = JSON.parse(raw) as GlobusProfile;
+        return done(null, profile);
+      } catch (parseError) {
+        return done(parseError as Error);
+      }
+    });
+  }
+}
+
+const mapGlobusProfileToUser = (profile: GlobusProfile): AuthUser => {
+  const primaryIdentity = profile.identity_set?.find((identity) => identity.email) || profile.identity_set?.[0];
+  const email = profile.email || primaryIdentity?.email || profile.preferred_username || primaryIdentity?.username;
+
+  if (!profile.sub || !email) {
+    throw new Error('Globus profile is missing required identity fields.');
+  }
+
+  return {
+    id: profile.sub,
+    email,
+    role: adminEmails.has(email.toLowerCase()) ? 'ADMIN' : 'RESEARCHER'
+  };
+};
+
+export const globusStrategy = new GlobusOAuth2Strategy({
+  authorizationURL: `${authBaseUrl}/authorize`,
+  tokenURL: `${authBaseUrl}/token`,
   clientID: process.env.GLOBUS_CLIENT_ID || '',
   clientSecret: process.env.GLOBUS_CLIENT_SECRET || '',
-  callbackURL: process.env.GLOBUS_REDIRECT_URI || 'http://localhost:5173/auth/callback'
-}, async (_accessToken: string, _refreshToken: string, _params: any, _profile: any, cb: VerifyCallback) => {
-  // Stub user for MVP (no DB required)
-  const user: AuthUser = { id: 'stub-user', email: 'user@globus.org', role: 'RESEARCHER' };
-  cb(null, user);
+  callbackURL: callbackUrl
+}, async (_accessToken: string, _refreshToken: string, _params: any, profile: GlobusProfile, cb: VerifyCallback) => {
+  try {
+    const user = mapGlobusProfileToUser(profile);
+    cb(null, user);
+  } catch (error) {
+    cb(error as Error);
+  }
 });
 
 passport.use('globus', globusStrategy);
 
-passport.serializeUser((user: any, done) => {
+passport.serializeUser((user, done) => {
   done(null, user);
 });
-passport.deserializeUser((obj: any, done) => {
-  done(null, obj);
+passport.deserializeUser((obj, done) => {
+  done(null, obj as Express.User);
 });
 
 export function ensureAuthenticated(req: Request, res: Response, next: NextFunction) {
-  const devAuthEnabled = process.env.NODE_ENV !== 'production' && process.env.DEV_AUTH !== 'false';
-
-  if (devAuthEnabled && req.user) {
+  if (req.user) {
     return next();
   }
 
-  if (req.isAuthenticated && req.isAuthenticated()) return next();
+  if (req.isAuthenticated && req.isAuthenticated()) {
+    return next();
+  }
+
   res.status(401).json({ error: 'Not authenticated' });
 }
 

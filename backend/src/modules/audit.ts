@@ -1,10 +1,19 @@
 import { Request, Response, NextFunction } from 'express';
-// import { PrismaClient } from '@prisma/client';
-// const prisma = new PrismaClient();
+import { prisma } from './prisma';
 
 export async function auditLog(userId: string | undefined, event: string, details?: string) {
-  // Mock audit log (no DB)
-  console.log(`Audit: ${event} by ${userId || 'unknown'}: ${details}`);
+  try {
+    await prisma.auditLog.create({
+      data: {
+        userId: userId ?? null,
+        event,
+        details
+      }
+    });
+  } catch (error) {
+    console.error('Failed to persist audit log:', error);
+    console.log(`Audit fallback: ${event} by ${userId || 'unknown'}: ${details}`);
+  }
 }
 
 export function auditLogger(req: Request, res: Response, next: NextFunction) {

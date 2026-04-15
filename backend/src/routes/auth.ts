@@ -10,7 +10,9 @@ const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
 const devAuthEnabled = process.env.NODE_ENV !== 'production' && process.env.DEV_AUTH !== 'false';
 
 // Globus login
-router.get('/login', passport.authenticate('globus', { scope: 'openid email profile' }));
+router.get('/login', passport.authenticate('globus', {
+  scope: ['openid', 'profile', 'email']
+}));
 
 router.get('/dev-login', (req, res, next) => {
   if (!devAuthEnabled) {
@@ -18,7 +20,7 @@ router.get('/dev-login', (req, res, next) => {
   }
 
   req.login(
-    { id: 'stub-user', email: 'user@globus.org', role: 'RESEARCHER' },
+    { id: 'stub-user', email: 'user@globus.org', role: 'RESEARCHER' } as Express.User,
     (error) => {
       if (error) {
         return next(error);
@@ -29,7 +31,7 @@ router.get('/dev-login', (req, res, next) => {
   );
 });
 
-// Globus callback (real)
+// Globus callback
 router.get('/callback',
   passport.authenticate('globus', { failureRedirect: `${frontendUrl}/` }),
   (_req, res) => {
@@ -47,3 +49,4 @@ router.get('/logout', (req, res) => {
 });
 
 export default router;
+
