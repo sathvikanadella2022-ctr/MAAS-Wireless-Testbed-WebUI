@@ -167,3 +167,20 @@ http://<ubuntu-machine-ip>:5173
 ## Notes
 - Globus OAuth2/OIDC integration is stubbed for local dev; see backend `.env.example` for required secrets.
 - All features are MVP-level and use mock data where integration is not possible.
+
+##Backend
+DATABASE_URL=postgresql://USER:PASSWORD@localhost:5432/5g_portal
+GLOBUS_CLIENT_ID=efe0cf86-a07c-443f-a5cc-b52cfcb13968
+GLOBUS_CLIENT_SECRET=VKd9v6soByTytWA5nVJcYX4qs8VS+i1/JPycullMSDY=
+GLOBUS_REDIRECT_URI=http://localhost:3002/auth/callback
+FRONTEND_URL=http://localhost:5173
+SESSION_SECRET=dev-secret
+PORT=3002
+NODE_ENV=development
+
+
+##frontend
+# Frontend environment variables
+VITE_API_URL=http://localhost:3002
+VITE_GLOBUS_CLIENT_ID=efe0cf86-a07c-443f-a5cc-b52cfcb13968
+VITE_GLOBUS_AUTH_URL=https://auth.globus.org/v2/oauth2/authorize
