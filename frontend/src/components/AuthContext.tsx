@@ -6,8 +6,15 @@ interface User {
   role: string;
 }
 
+interface AuthProviders {
+  globusEnabled: boolean;
+  devLoginEnabled: boolean;
+  missingGlobusConfig: string[];
+}
+
 interface AuthContextType {
   user: User | null;
+  authProviders: AuthProviders;
   loading: boolean;
   refreshUser: () => Promise<void>;
   setUser: (user: User | null) => void;
@@ -15,6 +22,11 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
+  authProviders: {
+    globusEnabled: false,
+    devLoginEnabled: false,
+    missingGlobusConfig: []
+  },
   loading: true,
   refreshUser: async () => {},
   setUser: () => {}
@@ -22,28 +34,73 @@ const AuthContext = createContext<AuthContextType>({
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
+  const [authProviders, setAuthProviders] = useState<AuthProviders>({
+    globusEnabled: false,
+    devLoginEnabled: false,
+    missingGlobusConfig: []
+  });
   const [loading, setLoading] = useState(true);
 
-  const refreshUser = async () => {
-    setLoading(true);
+  const loadAuth = async (silent = false) => {
+    if (!silent) {
+      setLoading(true);
+    }
 
     try {
-      const response = await fetch('/api/me', { credentials: 'include' });
-      const data = response.ok ? await response.json() : null;
-      setUser(data?.user ?? null);
+      const [userResponse, providersResponse] = await Promise.all([
+        fetch('/api/me', { credentials: 'include' }),
+        fetch('/auth/providers', { credentials: 'include' })
+      ]);
+
+      const userData = userResponse.ok ? await userResponse.json() : null;
+      const providersData = providersResponse.ok ? await providersResponse.json() : null;
+
+      setUser(userData?.user ?? null);
+      setAuthProviders(providersData ?? {
+        globusEnabled: false,
+        devLoginEnabled: false,
+        missingGlobusConfig: []
+      });
     } catch {
       setUser(null);
+      setAuthProviders({
+        globusEnabled: false,
+        devLoginEnabled: false,
+        missingGlobusConfig: []
+      });
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   };
 
+  const refreshUser = async () => loadAuth(false);
+
   useEffect(() => {
-    refreshUser();
+    void loadAuth(false);
+
+    const refreshInBackground = () => {
+      if (document.visibilityState === 'hidden') {
+        return;
+      }
+
+      void loadAuth(true);
+    };
+
+    const intervalId = window.setInterval(refreshInBackground, 60000);
+    window.addEventListener('focus', refreshInBackground);
+    document.addEventListener('visibilitychange', refreshInBackground);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', refreshInBackground);
+      document.removeEventListener('visibilitychange', refreshInBackground);
+    };
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, refreshUser, setUser }}>
+    <AuthContext.Provider value={{ user, authProviders, loading, refreshUser, setUser }}>
       {children}
     </AuthContext.Provider>
   );

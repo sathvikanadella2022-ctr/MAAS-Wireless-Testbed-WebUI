@@ -16,6 +16,9 @@ dotenv.config();
 const app = express();
 const server = http.createServer(app);
 const io = new SocketIOServer(server, { path: '/socket.io', cors: { origin: '*' } });
+const cookieSecure = process.env.SESSION_COOKIE_SECURE === 'true' || process.env.NODE_ENV === 'production';
+
+app.set('trust proxy', 1);
 
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
@@ -24,7 +27,7 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: process.env.NODE_ENV === 'production',
+    secure: cookieSecure,
     sameSite: 'lax'
   }
 }));

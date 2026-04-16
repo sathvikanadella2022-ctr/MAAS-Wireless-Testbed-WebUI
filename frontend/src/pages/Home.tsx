@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  Alert,
   Box,
   Card,
   CardContent,
@@ -9,12 +10,20 @@ import {
   Grid,
   Stack
 } from '@mui/material';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../components/AuthContext';
 
 const Home: React.FC = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const [searchParams] = useSearchParams();
+  const { user, authProviders } = useAuth();
+  const authError = searchParams.get('authError');
+
+  const authErrorMessage = authError === 'globus_not_configured'
+    ? 'Globus login is not configured on the backend yet.'
+    : authError === 'globus_login_failed'
+      ? 'Globus login failed. Please try again or verify the callback URL and client credentials.'
+      : '';
 
   return (
     <Box mt={4}>
@@ -48,18 +57,35 @@ const Home: React.FC = () => {
               </Button>
               {!user && (
                 <>
-                  <Button variant="text" sx={{ color: '#fff' }} href="/auth/login">
-                    Sign in with Globus
-                  </Button>
-                  <Button variant="text" sx={{ color: '#fff' }} href="/auth/dev-login">
-                    Continue as Demo User
-                  </Button>
+                  {authProviders.globusEnabled && (
+                    <Button variant="text" sx={{ color: '#fff' }} href="/auth/login">
+                      Sign in with Globus
+                    </Button>
+                  )}
+                  {authProviders.devLoginEnabled && (
+                    <Button variant="text" sx={{ color: '#fff' }} href="/auth/dev-login">
+                      Continue as Demo User
+                    </Button>
+                  )}
                 </>
               )}
             </Stack>
           </Stack>
         </CardContent>
       </Card>
+
+      {authErrorMessage && (
+        <Alert severity="error" sx={{ mb: 3 }}>
+          {authErrorMessage}
+        </Alert>
+      )}
+
+      {!user && !authProviders.globusEnabled && (
+        <Alert severity="warning" sx={{ mb: 3 }}>
+          Globus login is unavailable until the backend has `GLOBUS_CLIENT_ID`,
+          `GLOBUS_CLIENT_SECRET`, and `GLOBUS_REDIRECT_URI` configured.
+        </Alert>
+      )}
 
       <Grid container spacing={3}>
         <Grid item xs={12} md={4}>

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { randomBytes } from 'node:crypto';
 import { DeploymentStatus, Role } from '@prisma/client';
-import { ensureAuthenticated, ensureRole } from '../modules/auth';
+import { ensureAuthenticated, ensureRole, isDevAuthEnabled } from '../modules/auth';
 import { auditLog } from '../modules/audit';
 import { prisma } from '../modules/prisma';
 import { canStartTerminal, destroySession, listTerminalTargets, registerPendingSession } from '../modules/ssh';
@@ -236,7 +236,7 @@ const updateResourceStatus = async (io: SocketIOServer) => {
 
 export default (io: SocketIOServer) => {
   const router = Router();
-  const devAuthEnabled = process.env.NODE_ENV !== 'production' && process.env.DEV_AUTH !== 'false';
+  const devAuthEnabled = isDevAuthEnabled();
 
   void updateResourceStatus(io).catch((error) => {
     console.error('Failed to initialize resource status:', error);

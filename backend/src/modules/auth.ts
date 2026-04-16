@@ -23,6 +23,22 @@ const authBaseUrl = process.env.GLOBUS_AUTH_URL || 'https://auth.globus.org/v2/o
 const userInfoUrl = process.env.GLOBUS_USERINFO_URL || `${authBaseUrl}/userinfo`;
 const callbackUrl = process.env.GLOBUS_REDIRECT_URI || 'http://localhost:3002/auth/callback';
 
+const requiredGlobusEnv = ['GLOBUS_CLIENT_ID', 'GLOBUS_CLIENT_SECRET', 'GLOBUS_REDIRECT_URI'] as const;
+type RequiredGlobusEnv = (typeof requiredGlobusEnv)[number];
+
+const getMissingGlobusConfig = (): RequiredGlobusEnv[] =>
+  requiredGlobusEnv.filter((key) => !process.env[key]?.trim());
+
+export const isGlobusConfigured = () => getMissingGlobusConfig().length === 0;
+export const isDevAuthEnabled = () =>
+  process.env.NODE_ENV !== 'production' && process.env.DEV_AUTH === 'true';
+
+export const getAuthProviders = () => ({
+  globusEnabled: isGlobusConfigured(),
+  devLoginEnabled: isDevAuthEnabled(),
+  missingGlobusConfig: getMissingGlobusConfig()
+});
+
 const adminEmails = new Set(
   (process.env.GLOBUS_ADMIN_EMAILS || '')
     .split(',')

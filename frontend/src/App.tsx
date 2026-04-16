@@ -21,7 +21,7 @@ import { AuthProvider, useAuth } from './components/AuthContext';
 import { Link as RouterLink } from 'react-router-dom';
 
 const AppShell: React.FC = () => {
-  const { user, loading } = useAuth();
+  const { user, authProviders, loading } = useAuth();
 
   return (
     <>
@@ -62,12 +62,16 @@ const AppShell: React.FC = () => {
             </Stack>
           ) : (
             <Stack direction="row" spacing={1}>
-              <Button color="inherit" href="/auth/login">
-                Globus Login
-              </Button>
-              <Button color="inherit" href="/auth/dev-login">
-                Demo Login
-              </Button>
+              {authProviders.globusEnabled && (
+                <Button color="inherit" href="/auth/login">
+                  Globus Login
+                </Button>
+              )}
+              {authProviders.devLoginEnabled && (
+                <Button color="inherit" href="/auth/dev-login">
+                  Demo Login
+                </Button>
+              )}
             </Stack>
           )}
         </Toolbar>
