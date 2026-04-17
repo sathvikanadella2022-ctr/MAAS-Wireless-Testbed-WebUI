@@ -22,6 +22,7 @@ interface ResourceTarget {
   username?: string;
   port?: number;
   privateKeyPath?: string;
+  reservationResource?: string;
 }
 
 export interface TerminalTargetDefinition {
@@ -33,6 +34,7 @@ export interface TerminalTargetDefinition {
   port?: number;
   privateKeyPath?: string;
   description?: string;
+  reservationResource?: string;
 }
 
 // Sessions authorised by the REST endpoint, waiting for Socket.IO to claim them
@@ -43,7 +45,7 @@ const activeSessions = new Map<string, ActiveSession>();
 
 const terminalCwd = process.env.TERMINAL_CWD || os.homedir();
 const currentFilePath = fileURLToPath(import.meta.url);
-const terminalTargetsFile = path.resolve(path.dirname(currentFilePath), '../../../data/terminal-targets.json');
+const terminalTargetsFile = path.resolve(path.dirname(currentFilePath), '../../data/terminal-targets.json');
 
 const resolveShellCommand = () => {
   if (process.env.TERMINAL_SHELL) {
@@ -51,6 +53,21 @@ const resolveShellCommand = () => {
   }
 
   return os.platform() === 'win32' ? 'powershell.exe' : (process.env.SHELL ?? 'bash');
+};
+
+const resolveSshCommand = () => {
+  if (process.env.TERMINAL_SSH_COMMAND) {
+    return process.env.TERMINAL_SSH_COMMAND;
+  }
+
+  if (os.platform() === 'win32') {
+    const windowsOpenSsh = 'C:\\Windows\\System32\\OpenSSH\\ssh.exe';
+    if (fs.existsSync(windowsOpenSsh)) {
+      return windowsOpenSsh;
+    }
+  }
+
+  return 'ssh';
 };
 
 const buildTerminalEnv = (userId: string, resource: string): Record<string, string> => {
@@ -83,7 +100,8 @@ const normalizeTarget = (target: TerminalTargetDefinition): TerminalTargetDefini
   username: target.username,
   port: target.port,
   privateKeyPath: target.privateKeyPath,
-  description: target.description
+  description: target.description,
+  reservationResource: target.reservationResource
 });
 
 const loadFileTargets = (): Record<string, ResourceTarget & { label?: string; description?: string }> => {
@@ -108,6 +126,7 @@ const loadFileTargets = (): Record<string, ResourceTarget & { label?: string; de
               username: normalized.username,
               port: normalized.port,
               privateKeyPath: normalized.privateKeyPath,
+              reservationResource: normalized.reservationResource,
               label: normalized.label,
               description: normalized.description
             }
@@ -137,7 +156,8 @@ const loadJsonTargets = (): Record<string, ResourceTarget> => {
           host: target.host,
           username: target.username,
           port: target.port,
-          privateKeyPath: target.privateKeyPath
+          privateKeyPath: target.privateKeyPath,
+          reservationResource: target.reservationResource
         }
       ])
     );
@@ -173,8 +193,18 @@ export function resolveTerminalTarget(resource: string): ResourceTarget {
     host,
     username: process.env[`TERMINAL_USER_${envKey}`] || process.env.TERMINAL_SSH_USER,
     port: parsePort(process.env[`TERMINAL_PORT_${envKey}`] || process.env.TERMINAL_SSH_PORT),
-    privateKeyPath: process.env[`TERMINAL_KEY_${envKey}`] || process.env.TERMINAL_SSH_KEY
+    privateKeyPath: process.env[`TERMINAL_KEY_${envKey}`] || process.env.TERMINAL_SSH_KEY,
+    reservationResource: process.env[`TERMINAL_RESERVATION_RESOURCE_${envKey}`]
   };
+}
+
+export function resolveReservationResource(resource: string): string {
+  if (resource === 'local') {
+    return resource;
+  }
+
+  const target = resolveTerminalTarget(resource);
+  return target.reservationResource || resource;
 }
 
 export function canStartTerminal(resource: string): { ok: boolean; error?: string } {
@@ -210,6 +240,7 @@ export function listTerminalTargets(): Array<TerminalTargetDefinition & { config
     username: target.username,
     port: target.port,
     privateKeyPath: target.privateKeyPath,
+    reservationResource: target.reservationResource,
     description: target.description,
     configured: target.type === 'local' || Boolean(target.host)
   }));
@@ -226,6 +257,7 @@ export function listTerminalTargets(): Array<TerminalTargetDefinition & { config
     username: target.username,
     port: target.port,
     privateKeyPath: target.privateKeyPath,
+    reservationResource: target.reservationResource,
     configured: target.type === 'local' || Boolean(target.host)
   }));
 
@@ -238,6 +270,7 @@ export function listTerminalTargets(): Array<TerminalTargetDefinition & { config
     label: 'Local shell (dev / demo)',
     type: 'local',
     description: 'Runs a shell on the backend host.',
+    reservationResource: 'local',
     configured: true
   }];
 }
@@ -271,7 +304,7 @@ const buildSshLaunch = (resource: string, userId: string): { command: string; ar
   }
 
   return {
-    command: 'ssh',
+    command: resolveSshCommand(),
     args,
     cwd: terminalCwd,
     env: buildTerminalEnv(userId, resource)

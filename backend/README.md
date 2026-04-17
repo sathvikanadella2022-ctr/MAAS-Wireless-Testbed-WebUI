@@ -29,3 +29,4 @@
 - Role-based access enforced on protected routes
 - Auditing scaffolded in `modules/audit.ts`
 - MAAS/Ironic integration scaffolds in `integrations/`
+- Globus must be configured with the exact backend callback URI. Set either `GLOBUS_REDIRECT_URI` directly or `PUBLIC_BACKEND_URL` and let the app resolve `/auth/callback`.

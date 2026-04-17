@@ -92,6 +92,7 @@ Edit `backend/.env` and set at least:
 
 ```env
 DATABASE_URL=postgresql://USER:PASSWORD@localhost:5432/5g_portal
+PUBLIC_BACKEND_URL=http://<ubuntu-machine-ip>:3002
 FRONTEND_URL=http://<ubuntu-machine-ip>:5173
 GLOBUS_REDIRECT_URI=http://<ubuntu-machine-ip>:3002/auth/callback
 SESSION_SECRET=some-long-random-secret
@@ -106,6 +107,29 @@ TERMINAL_HOST_PC_1=192.168.1.25
 TERMINAL_USER_PC_1=ubuntu
 TERMINAL_PORT_PC_1=22
 TERMINAL_KEY_PC_1=/home/youruser/.ssh/pc1_key
+```
+
+For a cleaner multi-machine list in the UI, prefer `backend/data/terminal-targets.json` instead of many `TERMINAL_HOST_*` variables. Example:
+
+```json
+[
+  {
+    "resource": "local",
+    "label": "Local shell (dev / demo)",
+    "type": "local",
+    "description": "Runs a shell directly on the backend host."
+  },
+  {
+    "resource": "controller",
+    "label": "Controller Node",
+    "type": "ssh",
+    "host": "10.10.10.13",
+    "username": "controller",
+    "port": 22,
+    "privateKeyPath": "/home/youruser/.ssh/controller_key",
+    "description": "SSH terminal for the controller machine."
+  }
+]
 ```
 
 ### 6. Set up PostgreSQL
@@ -172,6 +196,7 @@ http://<ubuntu-machine-ip>:5173
 DATABASE_URL=postgresql://USER:PASSWORD@localhost:5432/5g_portal
 GLOBUS_CLIENT_ID=efe0cf86-a07c-443f-a5cc-b52cfcb13968
 GLOBUS_CLIENT_SECRET=VKd9v6soByTytWA5nVJcYX4qs8VS+i1/JPycullMSDY=
+PUBLIC_BACKEND_URL=http://localhost:3002
 GLOBUS_REDIRECT_URI=http://localhost:3002/auth/callback
 FRONTEND_URL=http://localhost:5173
 SESSION_SECRET=dev-secret

@@ -4,7 +4,7 @@ import { DeploymentStatus, Role } from '@prisma/client';
 import { ensureAuthenticated, ensureRole, isDevAuthEnabled } from '../modules/auth';
 import { auditLog } from '../modules/audit';
 import { prisma } from '../modules/prisma';
-import { canStartTerminal, destroySession, listTerminalTargets, registerPendingSession } from '../modules/ssh';
+import { canStartTerminal, destroySession, listTerminalTargets, registerPendingSession, resolveReservationResource } from '../modules/ssh';
 import { Server as SocketIOServer } from 'socket.io';
 
 type ResourceStatus = 'online' | 'offline' | 'busy';
@@ -33,6 +33,29 @@ interface ImageRecord {
   os: string;
   stack: string;
   description: string;
+}
+
+interface ReservationRecord {
+  id: string;
+  userId: string;
+  userEmail: string;
+  resource: string;
+  startTime: string;
+  endTime: string;
+  purpose: string;
+  project: string;
+}
+
+interface DeploymentRecord {
+  id: string;
+  resource: string;
+  imageId: string;
+  imageName: string;
+  requestedBy: string;
+  scheduledAt: string;
+  notes: string;
+  status: DeploymentStatusLabel;
+  createdAt: string;
 }
 
 const resources: ResourceRecord[] = [
@@ -119,6 +142,16 @@ const images: ImageRecord[] = [
   }
 ];
 
+const fallbackReservations: ReservationRecord[] = [];
+const fallbackDeployments: DeploymentRecord[] = [];
+
+const findFallbackReservationConflict = (resource: string, start: Date, end: Date) =>
+  fallbackReservations.find((reservation) => (
+    reservation.resource === resource &&
+    new Date(reservation.startTime).getTime() < end.getTime() &&
+    new Date(reservation.endTime).getTime() > start.getTime()
+  )) ?? null;
+
 const getUser = (req: any) => req.user as PortalUser | undefined;
 
 const deploymentStatusLabelMap: Record<DeploymentStatus, DeploymentStatusLabel> = {
@@ -177,7 +210,9 @@ const loadReservations = async () => {
     });
     return reservations.map(serializeReservation);
   } catch {
-    return [];
+    return [...fallbackReservations].sort(
+      (left, right) => new Date(left.startTime).getTime() - new Date(right.startTime).getTime()
+    );
   }
 };
 
@@ -198,7 +233,9 @@ const loadDeployments = async () => {
       createdAt: deployment.createdAt.toISOString()
     }));
   } catch {
-    return [];
+    return [...fallbackDeployments].sort(
+      (left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+    );
   }
 };
 
@@ -315,6 +352,10 @@ export default (io: SocketIOServer) => {
       // DB unavailable — skip conflict check in dev
     }
 
+    if (!conflictingReservation) {
+      conflictingReservation = findFallbackReservationConflict(resource, start, end);
+    }
+
     if (conflictingReservation) {
       return res.status(409).json({
         error: `Somebody already booked ${resource} from ${conflictingReservation.startTime.toLocaleString()} to ${conflictingReservation.endTime.toLocaleString()}. Please choose a different time.`
@@ -333,7 +374,16 @@ export default (io: SocketIOServer) => {
         }
       });
     } catch {
-      return res.status(503).json({ error: 'Database unavailable. Cannot save reservation.' });
+      fallbackReservations.push({
+        id: `reservation-${randomBytes(8).toString('hex')}`,
+        userId: dbUser.id,
+        userEmail: dbUser.email,
+        resource,
+        startTime: start.toISOString(),
+        endTime: end.toISOString(),
+        purpose: purpose.trim(),
+        project: project.trim()
+      });
     }
 
     await updateResourceStatus(io);
@@ -344,13 +394,21 @@ export default (io: SocketIOServer) => {
   router.delete('/reservations/:id', ensureAuthenticated, async (req, res) => {
     const user = getUser(req);
     let reservation: { id: string; userId: string; resource: string; user: { email: string } } | null = null;
+    let useFallbackReservationStore = false;
     try {
       reservation = await prisma.reservation.findUnique({
         where: { id: req.params.id },
         include: { user: { select: { email: true } } }
       });
     } catch {
-      return res.status(503).json({ error: 'Database unavailable.' });
+      const fallbackReservation = fallbackReservations.find((entry) => entry.id === req.params.id);
+      reservation = fallbackReservation ? {
+        id: fallbackReservation.id,
+        userId: fallbackReservation.userId,
+        resource: fallbackReservation.resource,
+        user: { email: fallbackReservation.userEmail }
+      } : null;
+      useFallbackReservationStore = true;
     }
 
     if (!reservation) {
@@ -365,7 +423,14 @@ export default (io: SocketIOServer) => {
     }
 
     try {
-      await prisma.reservation.delete({ where: { id: reservation.id } });
+      if (useFallbackReservationStore) {
+        const reservationIndex = fallbackReservations.findIndex((entry) => entry.id === reservation.id);
+        if (reservationIndex >= 0) {
+          fallbackReservations.splice(reservationIndex, 1);
+        }
+      } else {
+        await prisma.reservation.delete({ where: { id: reservation.id } });
+      }
     } catch {
       return res.status(503).json({ error: 'Database unavailable.' });
     }
@@ -433,6 +498,14 @@ export default (io: SocketIOServer) => {
       // DB unavailable — skip overlap check in dev
     }
 
+    if (!overlappingReservation) {
+      overlappingReservation = findFallbackReservationConflict(
+        resource,
+        deploymentTime,
+        new Date(deploymentTime.getTime() + 90 * 60 * 1000)
+      );
+    }
+
     if (overlappingReservation) {
       return res.status(409).json({
         error: `Deployment overlaps with a reservation on ${resource}. Choose another time.`
@@ -453,7 +526,17 @@ export default (io: SocketIOServer) => {
         }
       });
     } catch {
-      return res.status(503).json({ error: 'Database unavailable. Cannot save deployment.' });
+      fallbackDeployments.unshift({
+        id: `deployment-${randomBytes(8).toString('hex')}`,
+        resource,
+        imageId,
+        imageName: selectedImage.name,
+        requestedBy: dbUser.email,
+        scheduledAt: deploymentTime.toISOString(),
+        notes: notes?.trim() || '',
+        status: deploymentTime.getTime() <= Date.now() ? 'deploying' : 'queued',
+        createdAt: new Date().toISOString()
+      });
     }
 
     await auditLog(dbUser.id, 'deployment_create', `Resource: ${resource}; Image: ${selectedImage.name}`);
@@ -463,6 +546,7 @@ export default (io: SocketIOServer) => {
   router.post('/terminal/start', ensureAuthenticated, async (req, res) => {
     const { resource } = req.body as { resource?: string };
     const user = getUser(req);
+    const reservationResource = resource ? resolveReservationResource(resource) : '';
 
     if (!resource) {
       return res.status(400).json({ error: 'Pick a resource before starting a terminal session.' });
@@ -487,7 +571,7 @@ export default (io: SocketIOServer) => {
       const now = new Date();
       const row = await prisma.reservation.findFirst({
         where: {
-          resource,
+          resource: reservationResource,
           userId: user?.id,
           startTime: { lte: now },
           endTime: { gte: now }

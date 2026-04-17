@@ -1,28 +1,19 @@
 [
   {
-    "resource": "PC-1",
-    "label": "PC-1",
-    "type": "ssh",
-    "host": "192.168.1.25",
-    "username": "ubuntu",
-    "port": 22,
-    "privateKeyPath": "/home/youruser/.ssh/pc1_key",
-    "description": "Primary lab host"
-  },
-  {
-    "resource": "PC-2",
-    "label": "PC-2",
-    "type": "ssh",
-    "host": "192.168.1.26",
-    "username": "ubuntu",
-    "port": 22,
-    "privateKeyPath": "/home/youruser/.ssh/pc2_key",
-    "description": "Secondary validation host"
-  },
-  {
     "resource": "local",
     "label": "Local shell (dev / demo)",
     "type": "local",
-    "description": "Runs a shell on the backend host."
+    "description": "Runs a shell directly on the backend host."
+  },
+  {
+    "resource": "controller",
+    "label": "Controller Node",
+    "type": "ssh",
+    "host": "10.10.10.13",
+    "username": "controller",
+    "port": 22,
+    "privateKeyPath": "C:\\Users\\sathv\\.ssh\\controller_key",
+    "reservationResource": "PC-1",
+    "description": "SSH terminal for the controller machine."
   }
 ]

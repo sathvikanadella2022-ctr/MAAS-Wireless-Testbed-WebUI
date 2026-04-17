@@ -29,6 +29,7 @@ interface TerminalTarget {
   type?: 'local' | 'ssh';
   host?: string;
   description?: string;
+  reservationResource?: string;
   configured: boolean;
 }
 
@@ -233,13 +234,13 @@ const Terminal: React.FC = () => {
               value={resource}
               onChange={(e) => setResource(e.target.value)}
               fullWidth
-              helperText="Machines come from backend/data/terminal-targets.json. Non-admin users still need an active reservation for remote resources."
+              helperText="Machines come from backend/data/terminal-targets.json. Add more entries there to expand the terminal list. Non-admin users still need an active reservation for remote resources."
             >
               {selectableTargets.map((target) => (
                 <MenuItem key={target.resource} value={target.resource}>
                   {target.label || target.resource}
                   {target.type === 'ssh' && target.host ? ` (${target.host})` : ''}
-                  {!activeReservationNames.has(target.resource) && target.resource !== 'local' ? ' - reservation required' : ''}
+                  {!activeReservationNames.has(target.reservationResource || target.resource) && target.resource !== 'local' ? ' - reservation required' : ''}
                 </MenuItem>
               ))}
               {selectableTargets.length === 0 && (
@@ -248,6 +249,11 @@ const Terminal: React.FC = () => {
                 </MenuItem>
               )}
             </TextField>
+            {resource && (
+              <Typography variant="body2" color="text.secondary">
+                {targets.find((target) => target.resource === resource)?.description || 'Launch a terminal session for the selected machine.'}
+              </Typography>
+            )}
             <Button variant="contained" onClick={handleStart} disabled={!resource || loading || !user || selectableTargets.length === 0}>
               Start SSH Session
             </Button>
