@@ -12,7 +12,7 @@
     "host": "10.10.10.13",
     "username": "controller",
     "port": 22,
-    "privateKeyPath": "C:\\Users\\sathv\\.ssh\\controller_key",
+    "privateKeyPath": "/home/portal/.ssh/controller_key",
     "reservationResource": "PC-1",
     "description": "SSH terminal for the controller machine."
   }

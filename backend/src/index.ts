@@ -1,22 +1,22 @@
 import express from 'express';
 import session from 'express-session';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import http from 'http';
+import fs from 'node:fs';
+import path from 'node:path';
 import { Server as SocketIOServer } from 'socket.io';
 import passport from 'passport';
-import { globusStrategy } from './modules/auth';
+import './modules/env';
 import apiRouter from './routes/api';
 import authRouter from './routes/auth';
 import { auditLogger } from './modules/audit';
 import { claimPendingSession, spawnPtySession, destroySession } from './modules/ssh';
 
-dotenv.config();
-
 const app = express();
 const server = http.createServer(app);
 const io = new SocketIOServer(server, { path: '/socket.io', cors: { origin: '*' } });
 const cookieSecure = process.env.SESSION_COOKIE_SECURE === 'true' || process.env.NODE_ENV === 'production';
+const frontendDistPath = path.resolve(__dirname, '../../frontend/dist');
 
 app.set('trust proxy', 1);
 
@@ -37,6 +37,13 @@ app.use(auditLogger);
 
 app.use('/api', apiRouter(io));
 app.use('/auth', authRouter);
+
+if (fs.existsSync(frontendDistPath)) {
+  app.use(express.static(frontendDistPath));
+  app.get(/^(?!\/(?:api|auth|socket\.io)(?:\/|$)).*/, (_req, res) => {
+    res.sendFile(path.join(frontendDistPath, 'index.html'));
+  });
+}
 
 // WebSocket: real-time resource status updates
 io.on('connection', (socket) => {
@@ -104,4 +111,7 @@ terminalNs.on('connection', (socket) => {
 const PORT = process.env.PORT || 3002;
 server.listen(PORT, () => {
   console.log(`Backend listening on http://localhost:${PORT}`);
+  if (fs.existsSync(frontendDistPath)) {
+    console.log(`Serving frontend from ${frontendDistPath}`);
+  }
 });

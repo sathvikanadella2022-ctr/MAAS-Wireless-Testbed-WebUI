@@ -2,8 +2,7 @@ import passport from 'passport';
 import { Strategy as OAuth2Strategy } from 'passport-oauth2';
 import { Request, Response, NextFunction } from 'express';
 import { VerifyCallback } from 'passport-oauth2';
-import dotenv from 'dotenv';
-dotenv.config();
+import './env';
 
 export type AuthUser = {
   id: string;
@@ -96,22 +95,26 @@ const mapGlobusProfileToUser = (profile: GlobusProfile): AuthUser => {
   };
 };
 
-export const globusStrategy = new GlobusOAuth2Strategy({
-  authorizationURL: `${authBaseUrl}/authorize`,
-  tokenURL: `${authBaseUrl}/token`,
-  clientID: process.env.GLOBUS_CLIENT_ID || '',
-  clientSecret: process.env.GLOBUS_CLIENT_SECRET || '',
-  callbackURL: callbackUrl
-}, async (_accessToken: string, _refreshToken: string, _params: any, profile: GlobusProfile, cb: VerifyCallback) => {
-  try {
-    const user = mapGlobusProfileToUser(profile);
-    cb(null, user);
-  } catch (error) {
-    cb(error as Error);
-  }
-});
+export const globusStrategy = isGlobusConfigured()
+  ? new GlobusOAuth2Strategy({
+    authorizationURL: `${authBaseUrl}/authorize`,
+    tokenURL: `${authBaseUrl}/token`,
+    clientID: process.env.GLOBUS_CLIENT_ID || '',
+    clientSecret: process.env.GLOBUS_CLIENT_SECRET || '',
+    callbackURL: callbackUrl
+  }, async (_accessToken: string, _refreshToken: string, _params: any, profile: GlobusProfile, cb: VerifyCallback) => {
+    try {
+      const user = mapGlobusProfileToUser(profile);
+      cb(null, user);
+    } catch (error) {
+      cb(error as Error);
+    }
+  })
+  : null;
 
-passport.use('globus', globusStrategy);
+if (globusStrategy) {
+  passport.use('globus', globusStrategy);
+}
 
 passport.serializeUser((user, done) => {
   done(null, user);

@@ -12,6 +12,16 @@
    npm run dev
    ```
 
+## Production Build
+
+Build the frontend with:
+
+```
+npm run build
+```
+
+For production deployment, the backend serves the generated `dist/` bundle behind an HTTPS reverse proxy, so users access the app through `https://ubuntu-4.engr.uconn.edu:3002`.
+
 ## Features
 - Homepage with Documentation and Login cards
 - Dashboard (real-time websocket updates driven by reservation state and mock resource inventory)
@@ -24,3 +34,4 @@
 - Real Globus login requires backend `GLOBUS_CLIENT_ID`, `GLOBUS_CLIENT_SECRET`, and `GLOBUS_REDIRECT_URI`
 - Demo login appears only when backend `DEV_AUTH=true`
 - Uses Material UI for styling
+- In production, frontend requests use same-origin `/api`, `/auth`, and `/socket.io` paths behind the backend on port `3002`

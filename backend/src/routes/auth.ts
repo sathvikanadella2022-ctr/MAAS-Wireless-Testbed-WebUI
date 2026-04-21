@@ -2,12 +2,14 @@ import { Response, Router } from 'express';
 import passport from 'passport';
 import { auditLog } from '../modules/audit';
 import { getAuthProviders, isDevAuthEnabled, isGlobusConfigured } from '../modules/auth';
-import dotenv from 'dotenv';
-
-dotenv.config();
+import '../modules/env';
 
 const router = Router();
-const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+const frontendUrl = (
+  process.env.FRONTEND_URL
+  || process.env.PUBLIC_BACKEND_URL
+  || 'http://localhost:3002'
+).trim().replace(/\/+$/, '');
 
 const redirectWithAuthError = (res: Response, errorCode: string) => {
   const url = new URL(frontendUrl);

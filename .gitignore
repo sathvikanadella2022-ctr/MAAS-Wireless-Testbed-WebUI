@@ -3,6 +3,7 @@ node_modules/
 dist/
 .env
 .env.*
+backend/env.production
 
 # Prisma
 backend/prisma/dev.db

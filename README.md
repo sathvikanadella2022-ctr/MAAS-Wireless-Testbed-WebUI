@@ -48,7 +48,7 @@ cd backend && npm run dev
 
 #### 5. Open in browser
 - Frontend: http://localhost:5173
-- Backend API: http://localhost:3001
+- Backend API: http://localhost:3002
 
 ## Ubuntu Setup
 
@@ -92,12 +92,13 @@ Edit `backend/.env` and set at least:
 
 ```env
 DATABASE_URL=postgresql://USER:PASSWORD@localhost:5432/5g_portal
-PUBLIC_BACKEND_URL=http://<ubuntu-machine-ip>:3002
-FRONTEND_URL=http://<ubuntu-machine-ip>:5173
-GLOBUS_REDIRECT_URI=http://<ubuntu-machine-ip>:3002/auth/callback
+PUBLIC_BACKEND_URL=https://ubuntu-4.engr.uconn.edu:3002
+FRONTEND_URL=https://ubuntu-4.engr.uconn.edu:3002
+GLOBUS_REDIRECT_URI=https://ubuntu-4.engr.uconn.edu:3002/auth/callback
 SESSION_SECRET=some-long-random-secret
-PORT=3002
-NODE_ENV=development
+PORT=3003
+NODE_ENV=production
+SESSION_COOKIE_SECURE=true
 ```
 
 If you want the terminal to connect to remote lab machines over SSH, add entries like:
@@ -155,30 +156,32 @@ npx prisma generate
 npx prisma migrate dev --name init
 ```
 
-### 8. Start the backend
+### 8. Build the frontend
 ```bash
-npm run dev
+cd ../frontend
+npm run build
 ```
 
-### 9. Start the frontend
-In a second terminal:
-
+### 9. Start the backend
 ```bash
-cd frontend
-npm run dev -- --host 0.0.0.0
+cd ../backend
+npm start
 ```
+
+In production, expose only `3002` publicly over HTTPS and reverse-proxy it to the backend on `127.0.0.1:3003`.
 
 ### 10. Open the app
 Visit:
 
 ```text
-http://<ubuntu-machine-ip>:5173
+https://ubuntu-4.engr.uconn.edu:3002
 ```
 
 ### Ubuntu Notes
 - The terminal feature uses `bash` on Linux and can SSH to remote hosts if `TERMINAL_HOST_*` or `TERMINAL_RESOURCE_HOSTS` is configured in `backend/.env`.
 - Make sure `ssh` is installed on the Ubuntu machine if you plan to use remote terminal sessions.
 - If you move SSH keys from Windows, update their paths to Linux-style paths such as `/home/youruser/.ssh/...`.
+- Globus should use `https://ubuntu-4.engr.uconn.edu:3002/auth/callback` as the registered callback URI for this deployment.
 - If the checked-in `backend/.env` contains real secrets, rotate them before moving to a new machine.
 
 ## Folder Structure
@@ -187,21 +190,24 @@ http://<ubuntu-machine-ip>:5173
 
 ## Documentation
 - Full step-by-step setup and operations guide: `docs/ARA_SETUP_GUIDE.md`
+- Ubuntu single-port deployment guide: `docs/UBUNTU_SERVER_DEPLOYMENT.md`
 
 ## Notes
 - Globus OAuth2/OIDC integration is stubbed for local dev; see backend `.env.example` for required secrets.
 - All features are MVP-level and use mock data where integration is not possible.
+- Production deployment can run entirely on `:3002` because the backend now serves the built frontend bundle when `frontend/dist` exists.
 
 ##Backend
 DATABASE_URL=postgresql://USER:PASSWORD@localhost:5432/5g_portal
-GLOBUS_CLIENT_ID=efe0cf86-a07c-443f-a5cc-b52cfcb13968
-GLOBUS_CLIENT_SECRET=VKd9v6soByTytWA5nVJcYX4qs8VS+i1/JPycullMSDY=
-PUBLIC_BACKEND_URL=http://localhost:3002
-GLOBUS_REDIRECT_URI=http://localhost:3002/auth/callback
-FRONTEND_URL=http://localhost:5173
+GLOBUS_CLIENT_ID=your-globus-client-id
+GLOBUS_CLIENT_SECRET=your-globus-client-secret
+PUBLIC_BACKEND_URL=https://ubuntu-4.engr.uconn.edu:3002
+GLOBUS_REDIRECT_URI=https://ubuntu-4.engr.uconn.edu:3002/auth/callback
+FRONTEND_URL=https://ubuntu-4.engr.uconn.edu:3002
 SESSION_SECRET=dev-secret
-PORT=3002
-NODE_ENV=development
+PORT=3003
+NODE_ENV=production
+SESSION_COOKIE_SECURE=true
 
 
 ##frontend

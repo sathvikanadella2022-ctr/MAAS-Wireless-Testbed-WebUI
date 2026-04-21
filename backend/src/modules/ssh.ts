@@ -2,7 +2,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import * as pty from 'node-pty';
-import { fileURLToPath } from 'node:url';
 
 interface PendingSession {
   userId: string;
@@ -44,8 +43,7 @@ const pendingSessions = new Map<string, PendingSession>();
 const activeSessions = new Map<string, ActiveSession>();
 
 const terminalCwd = process.env.TERMINAL_CWD || os.homedir();
-const currentFilePath = fileURLToPath(import.meta.url);
-const terminalTargetsFile = path.resolve(path.dirname(currentFilePath), '../../data/terminal-targets.json');
+const terminalTargetsFile = path.resolve(__dirname, '../../data/terminal-targets.json');
 
 const resolveShellCommand = () => {
   if (process.env.TERMINAL_SHELL) {
