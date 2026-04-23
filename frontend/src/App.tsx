@@ -1,5 +1,5 @@
 import React from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Home from './pages/Home';
 import Dashboard from './pages/Dashboard';
 import Reservations from './pages/Reservations';
@@ -22,6 +22,8 @@ import { Link as RouterLink } from 'react-router-dom';
 
 const AppShell: React.FC = () => {
   const { user, authProviders, loading } = useAuth();
+  const location = useLocation();
+  const docsMode = location.pathname === '/docs';
 
   return (
     <>
@@ -77,7 +79,13 @@ const AppShell: React.FC = () => {
         </Toolbar>
       </AppBar>
 
-      <Container maxWidth="lg" sx={{ py: 4 }}>
+      <Container
+        maxWidth={docsMode ? false : 'lg'}
+        sx={{
+          py: 4,
+          px: docsMode ? { xs: 2, md: 4, lg: 6 } : undefined
+        }}
+      >
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/dashboard" element={<Dashboard />} />

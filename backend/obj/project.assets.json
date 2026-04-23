@@ -13,11 +13,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\UCONN\\Spring_2026\\Senior_Design\\5G_portal\\backend\\backend.csproj",
+      "projectUniqueName": "C:\\UCONN\\Spring_2026\\Senior_Design\\MAAS-Wireless-Testbed-WebUI\\backend\\backend.csproj",
       "projectName": "backend",
-      "projectPath": "C:\\UCONN\\Spring_2026\\Senior_Design\\5G_portal\\backend\\backend.csproj",
+      "projectPath": "C:\\UCONN\\Spring_2026\\Senior_Design\\MAAS-Wireless-Testbed-WebUI\\backend\\backend.csproj",
       "packagesPath": "C:\\Users\\sathv\\.nuget\\packages\\",
-      "outputPath": "C:\\UCONN\\Spring_2026\\Senior_Design\\5G_portal\\backend\\obj\\",
+      "outputPath": "C:\\UCONN\\Spring_2026\\Senior_Design\\MAAS-Wireless-Testbed-WebUI\\backend\\obj\\",
       "projectStyle": "PackageReference",
       "configFilePaths": [
         "C:\\Users\\sathv\\AppData\\Roaming\\NuGet\\NuGet.Config"
