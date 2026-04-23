@@ -20,6 +20,24 @@ import {
 import { AuthProvider, useAuth } from './components/AuthContext';
 import { Link as RouterLink } from 'react-router-dom';
 
+const ProtectedRoute: React.FC<{ children: React.ReactElement }> = ({ children }) => {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <Box mt={6} display="flex" justifyContent="center">
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  if (!user) {
+    return <Navigate to="/" replace />;
+  }
+
+  return children;
+};
+
 const AppShell: React.FC = () => {
   const { user, authProviders, loading } = useAuth();
   const location = useLocation();
@@ -34,23 +52,27 @@ const AppShell: React.FC = () => {
             5G Testbed Portal
           </Typography>
           <Button color="inherit" component={RouterLink} to="/">
-            Home
-          </Button>
-          <Button color="inherit" component={RouterLink} to="/dashboard">
-            Dashboard
-          </Button>
-          <Button color="inherit" component={RouterLink} to="/reservations">
-            Reservations
-          </Button>
-          <Button color="inherit" component={RouterLink} to="/deployments">
-            Image Deployment
-          </Button>
-          <Button color="inherit" component={RouterLink} to="/terminal">
-            Terminal
+            Login
           </Button>
           <Button color="inherit" component={RouterLink} to="/docs">
             Docs
           </Button>
+          {user && (
+            <>
+              <Button color="inherit" component={RouterLink} to="/dashboard">
+                Dashboard
+              </Button>
+              <Button color="inherit" component={RouterLink} to="/reservations">
+                Reservations
+              </Button>
+              <Button color="inherit" component={RouterLink} to="/deployments">
+                Image Deployment
+              </Button>
+              <Button color="inherit" component={RouterLink} to="/terminal">
+                Terminal
+              </Button>
+            </>
+          )}
           {loading ? (
             <CircularProgress size={20} color="inherit" />
           ) : user ? (
@@ -88,10 +110,10 @@ const AppShell: React.FC = () => {
       >
         <Routes>
           <Route path="/" element={<Home />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/reservations" element={<Reservations />} />
-          <Route path="/deployments" element={<Deployments />} />
-          <Route path="/terminal" element={<Terminal />} />
+          <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/reservations" element={<ProtectedRoute><Reservations /></ProtectedRoute>} />
+          <Route path="/deployments" element={<ProtectedRoute><Deployments /></ProtectedRoute>} />
+          <Route path="/terminal" element={<ProtectedRoute><Terminal /></ProtectedRoute>} />
           <Route path="/docs" element={<Docs />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
