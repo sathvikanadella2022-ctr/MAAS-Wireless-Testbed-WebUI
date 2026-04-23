@@ -87,13 +87,16 @@ const Terminal: React.FC = () => {
     }).map((reservation) => reservation.resource));
   }, [reservations, user]);
 
-  const selectableTargets = useMemo(() => targets.filter((target) => target.configured), [targets]);
+  const defaultTarget = useMemo(
+    () => targets.find((target) => target.configured) ?? targets[0] ?? null,
+    [targets]
+  );
 
   useEffect(() => {
-    if (!resource && selectableTargets.length > 0) {
-      setResource(selectableTargets[0].resource);
+    if (!resource && defaultTarget) {
+      setResource(defaultTarget.resource);
     }
-  }, [resource, selectableTargets]);
+  }, [defaultTarget, resource]);
 
   // Mount xterm.js once a sessionId is available
   useEffect(() => {
@@ -234,16 +237,20 @@ const Terminal: React.FC = () => {
               value={resource}
               onChange={(e) => setResource(e.target.value)}
               fullWidth
-              helperText="Machines come from backend/data/terminal-targets.json. Add more entries there to expand the terminal list. Non-admin users still need an active reservation for remote resources."
+              helperText="Targets come from backend/data/terminal-targets.json. Placeholder jump-box entries stay visible until their SSH details are filled in on the deployed host."
             >
-              {selectableTargets.map((target) => (
-                <MenuItem key={target.resource} value={target.resource}>
+              {targets.map((target) => (
+                <MenuItem key={target.resource} value={target.resource} disabled={!target.configured}>
                   {target.label || target.resource}
                   {target.type === 'ssh' && target.host ? ` (${target.host})` : ''}
-                  {!activeReservationNames.has(target.reservationResource || target.resource) && target.resource !== 'local' ? ' - reservation required' : ''}
+                  {!target.configured
+                    ? ' - not configured'
+                    : !activeReservationNames.has(target.reservationResource || target.resource) && target.resource !== 'local'
+                      ? ' - reservation required'
+                      : ''}
                 </MenuItem>
               ))}
-              {selectableTargets.length === 0 && (
+              {targets.length === 0 && (
                 <MenuItem value="" disabled>
                   No terminal targets configured
                 </MenuItem>
@@ -254,8 +261,12 @@ const Terminal: React.FC = () => {
                 {targets.find((target) => target.resource === resource)?.description || 'Launch a terminal session for the selected machine.'}
               </Typography>
             )}
-            <Button variant="contained" onClick={handleStart} disabled={!resource || loading || !user || selectableTargets.length === 0}>
-              Start SSH Session
+            <Button
+              variant="contained"
+              onClick={handleStart}
+              disabled={!resource || loading || !user || !targets.find((target) => target.resource === resource)?.configured}
+            >
+              Start Session
             </Button>
           </Stack>
         </Paper>

@@ -565,6 +565,14 @@ export default (io: SocketIOServer) => {
       return res.status(400).json({ error: terminalCheck.error });
     }
 
+    if (isDevLocalShell) {
+      const sessionId = `terminal-${randomBytes(16).toString('hex')}`;
+      registerPendingSession(sessionId, user!.id, resource);
+
+      await auditLog(user?.id, 'terminal_start', `Started terminal session for ${resource}`);
+      return res.json({ sessionId, message: `Terminal ready for ${resource}.` });
+    }
+
     // Check for an active reservation; skip the DB check gracefully in dev mode if the DB is unavailable
     let hasReservation = false;
     try {
@@ -586,7 +594,7 @@ export default (io: SocketIOServer) => {
       hasReservation = true; // dev bypass
     }
 
-    if (!isDevLocalShell && !hasReservation && user?.role !== Role.ADMIN) {
+    if (!hasReservation && user?.role !== Role.ADMIN) {
       return res.status(403).json({ error: 'You need an active reservation for this resource.' });
     }
 

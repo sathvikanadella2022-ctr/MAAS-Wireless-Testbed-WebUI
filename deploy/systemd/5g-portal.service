@@ -1,0 +1,22 @@
+[Unit]
+Description=5G Testbed Portal
+After=network.target postgresql.service
+Wants=network.target
+
+[Service]
+Type=simple
+User=portal
+Group=portal
+WorkingDirectory=/opt/5g-portal/backend
+EnvironmentFile=/opt/5g-portal/backend/env.production
+ExecStart=/usr/bin/npm start
+Restart=always
+RestartSec=5
+TimeoutStartSec=30
+
+# Keep the service logs in journald.
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

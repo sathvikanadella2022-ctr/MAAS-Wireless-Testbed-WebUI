@@ -22,6 +22,12 @@ interface ResourceTarget {
   port?: number;
   privateKeyPath?: string;
   reservationResource?: string;
+  label?: string;
+  description?: string;
+  jumpHost?: string;
+  jumpUsername?: string;
+  jumpPort?: number;
+  jumpPrivateKeyPath?: string;
 }
 
 export interface TerminalTargetDefinition {
@@ -34,6 +40,10 @@ export interface TerminalTargetDefinition {
   privateKeyPath?: string;
   description?: string;
   reservationResource?: string;
+  jumpHost?: string;
+  jumpUsername?: string;
+  jumpPort?: number;
+  jumpPrivateKeyPath?: string;
 }
 
 // Sessions authorised by the REST endpoint, waiting for Socket.IO to claim them
@@ -90,16 +100,25 @@ const parsePort = (value: string | undefined): number | undefined => {
   return Number.isFinite(parsed) ? parsed : undefined;
 };
 
+const normalizeOptionalString = (value: string | undefined): string | undefined => {
+  const normalized = value?.trim();
+  return normalized ? normalized : undefined;
+};
+
 const normalizeTarget = (target: TerminalTargetDefinition): TerminalTargetDefinition => ({
   resource: target.resource,
-  label: target.label || target.resource,
-  type: target.type ?? (target.host ? 'ssh' : 'local'),
-  host: target.host,
-  username: target.username,
+  label: normalizeOptionalString(target.label) || target.resource,
+  type: target.type ?? (normalizeOptionalString(target.host) ? 'ssh' : 'local'),
+  host: normalizeOptionalString(target.host),
+  username: normalizeOptionalString(target.username),
   port: target.port,
-  privateKeyPath: target.privateKeyPath,
-  description: target.description,
-  reservationResource: target.reservationResource
+  privateKeyPath: normalizeOptionalString(target.privateKeyPath),
+  description: normalizeOptionalString(target.description),
+  reservationResource: normalizeOptionalString(target.reservationResource),
+  jumpHost: normalizeOptionalString(target.jumpHost),
+  jumpUsername: normalizeOptionalString(target.jumpUsername),
+  jumpPort: target.jumpPort,
+  jumpPrivateKeyPath: normalizeOptionalString(target.jumpPrivateKeyPath)
 });
 
 const loadFileTargets = (): Record<string, ResourceTarget & { label?: string; description?: string }> => {
@@ -126,7 +145,11 @@ const loadFileTargets = (): Record<string, ResourceTarget & { label?: string; de
               privateKeyPath: normalized.privateKeyPath,
               reservationResource: normalized.reservationResource,
               label: normalized.label,
-              description: normalized.description
+              description: normalized.description,
+              jumpHost: normalized.jumpHost,
+              jumpUsername: normalized.jumpUsername,
+              jumpPort: normalized.jumpPort,
+              jumpPrivateKeyPath: normalized.jumpPrivateKeyPath
             }
           ];
         })
@@ -151,32 +174,38 @@ const loadJsonTargets = (): Record<string, ResourceTarget> => {
         resource,
         {
           type: target.type ?? (target.host ? 'ssh' : 'local'),
-          host: target.host,
-          username: target.username,
-          port: target.port,
-          privateKeyPath: target.privateKeyPath,
-          reservationResource: target.reservationResource
-        }
-      ])
+            host: target.host,
+            username: target.username,
+            port: target.port,
+            privateKeyPath: target.privateKeyPath,
+            reservationResource: target.reservationResource,
+            label: normalizeOptionalString(target.label),
+            description: normalizeOptionalString(target.description),
+            jumpHost: normalizeOptionalString(target.jumpHost),
+            jumpUsername: normalizeOptionalString(target.jumpUsername),
+            jumpPort: target.jumpPort,
+            jumpPrivateKeyPath: normalizeOptionalString(target.jumpPrivateKeyPath)
+          }
+        ])
     );
   } catch {
     return {};
   }
 };
 
+const mergeConfiguredTargets = (): Record<string, ResourceTarget> => ({
+  ...loadFileTargets(),
+  ...loadJsonTargets()
+});
+
 export function resolveTerminalTarget(resource: string): ResourceTarget {
   if (resource === 'local') {
     return { type: 'local' };
   }
 
-  const fileTarget = loadFileTargets()[resource];
-  if (fileTarget) {
-    return fileTarget;
-  }
-
-  const jsonTarget = loadJsonTargets()[resource];
-  if (jsonTarget) {
-    return jsonTarget;
+  const configuredTarget = mergeConfiguredTargets()[resource];
+  if (configuredTarget) {
+    return configuredTarget;
   }
 
   const envKey = toResourceEnvKey(resource);
@@ -192,7 +221,11 @@ export function resolveTerminalTarget(resource: string): ResourceTarget {
     username: process.env[`TERMINAL_USER_${envKey}`] || process.env.TERMINAL_SSH_USER,
     port: parsePort(process.env[`TERMINAL_PORT_${envKey}`] || process.env.TERMINAL_SSH_PORT),
     privateKeyPath: process.env[`TERMINAL_KEY_${envKey}`] || process.env.TERMINAL_SSH_KEY,
-    reservationResource: process.env[`TERMINAL_RESERVATION_RESOURCE_${envKey}`]
+    reservationResource: process.env[`TERMINAL_RESERVATION_RESOURCE_${envKey}`],
+    jumpHost: process.env[`TERMINAL_JUMP_HOST_${envKey}`] || process.env.TERMINAL_JUMP_HOST,
+    jumpUsername: process.env[`TERMINAL_JUMP_USER_${envKey}`] || process.env.TERMINAL_JUMP_USER,
+    jumpPort: parsePort(process.env[`TERMINAL_JUMP_PORT_${envKey}`] || process.env.TERMINAL_JUMP_PORT),
+    jumpPrivateKeyPath: process.env[`TERMINAL_JUMP_KEY_${envKey}`] || process.env.TERMINAL_JUMP_KEY
   };
 }
 
@@ -230,7 +263,7 @@ export function canStartTerminal(resource: string): { ok: boolean; error?: strin
 }
 
 export function listTerminalTargets(): Array<TerminalTargetDefinition & { configured: boolean }> {
-  const fileTargets = Object.entries(loadFileTargets()).map(([resource, target]) => ({
+  const configuredTargets = Object.entries(mergeConfiguredTargets()).map(([resource, target]) => ({
     resource,
     label: target.label || resource,
     type: target.type,
@@ -243,24 +276,8 @@ export function listTerminalTargets(): Array<TerminalTargetDefinition & { config
     configured: target.type === 'local' || Boolean(target.host)
   }));
 
-  if (fileTargets.length > 0) {
-    return fileTargets;
-  }
-
-  const jsonTargets = Object.entries(loadJsonTargets()).map(([resource, target]) => ({
-    resource,
-    label: resource,
-    type: target.type,
-    host: target.host,
-    username: target.username,
-    port: target.port,
-    privateKeyPath: target.privateKeyPath,
-    reservationResource: target.reservationResource,
-    configured: target.type === 'local' || Boolean(target.host)
-  }));
-
-  if (jsonTargets.length > 0) {
-    return jsonTargets;
+  if (configuredTargets.length > 0) {
+    return configuredTargets;
   }
 
   return [{
@@ -272,6 +289,32 @@ export function listTerminalTargets(): Array<TerminalTargetDefinition & { config
     configured: true
   }];
 }
+
+const buildJumpProxyCommand = (target: ResourceTarget) => {
+  if (!target.jumpHost) {
+    return undefined;
+  }
+
+  const jumpDestination = target.jumpUsername ? `${target.jumpUsername}@${target.jumpHost}` : target.jumpHost;
+  const proxyArgs = [
+    'ssh',
+    '-W', '%h:%p',
+    '-o', 'StrictHostKeyChecking=no',
+    '-o', 'ServerAliveInterval=30'
+  ];
+
+  if (target.jumpPort) {
+    proxyArgs.push('-p', String(target.jumpPort));
+  }
+
+  if (target.jumpPrivateKeyPath) {
+    proxyArgs.push('-i', target.jumpPrivateKeyPath);
+  }
+
+  proxyArgs.push(jumpDestination);
+
+  return proxyArgs.join(' ');
+};
 
 const buildSshLaunch = (resource: string, userId: string): { command: string; args: string[]; cwd: string; env: Record<string, string> } => {
   const target = resolveTerminalTarget(resource);
@@ -299,6 +342,11 @@ const buildSshLaunch = (resource: string, userId: string): { command: string; ar
 
   if (target.privateKeyPath) {
     args.push('-i', target.privateKeyPath);
+  }
+
+  const proxyCommand = buildJumpProxyCommand(target);
+  if (proxyCommand) {
+    args.push('-o', `ProxyCommand=${proxyCommand}`);
   }
 
   return {
